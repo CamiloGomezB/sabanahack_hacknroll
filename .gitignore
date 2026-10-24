@@ -1,0 +1,38 @@
+# Secretos
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Node / web / móvil
+node_modules/
+dist/
+build/
+.expo/
+
+# Supabase CLI local
+supabase/.branches/
+supabase/.temp/
+
+# Datos sensibles: fotos de caras y documentación de los robots (trae contraseñas por defecto)
+dataset/
+*.zip
+*.mov
+*.mp4
+
+# Sistema / editores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Modelos de AgiBot (se cargan desde la carpeta de la hackathon o desde X2_MODELO)
+simulation/models/*
+!simulation/models/.gitkeep
+simulation/capturas/

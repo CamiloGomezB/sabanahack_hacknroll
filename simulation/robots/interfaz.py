@@ -1,0 +1,60 @@
+"""Órdenes que el coordinador (la recepción) le da a cada robot.
+
+El X2 y el D1 son máquinas distintas, cada una con su SDK: el X2 usa AimDK sobre ROS 2 y el D1 el
+SDK agibot_D1_Edu-Ultra. Por eso cada uno tiene su propio programa con esta misma interfaz:
+
+- `x2_sim.py` / `d1_sim.py`: los robots dentro de la simulación de MuJoCo.
+- Más adelante, `x2_aimdk.py` / `d1_sdk.py`: los mismos métodos llamando al robot real.
+
+El coordinador no sabe cuál de los dos está usando. Las acciones que tardan (caminar, saludar)
+devuelven un iterable que avanza hasta que la acción termina: en la simulación da un paso por
+cuadro; en el robot real, el adaptador consulta el estado del SDK en cada paso.
+
+Los robots no hablan con Supabase ni guardan claves: reciben solo la orden que necesitan.
+"""
+
+from collections.abc import Iterator
+from typing import Protocol
+
+from caras import Captura
+
+Accion = Iterator[None]
+Punto = tuple[float, float]
+
+
+class X2(Protocol):
+    """Recepcionista: cámara, voz, gestos y el mapa del lobby."""
+
+    def capturar(self) -> Captura:
+        """Toma la imagen de la persona que llega y devuelve su huella (o por qué no sirve)."""
+
+    def decir(self, texto: str) -> None: ...
+
+    def mirar_visitante(self, segundos: float) -> Accion: ...
+
+    def saludar(self, segundos: float) -> Accion: ...
+
+    def negar(self, segundos: float) -> Accion: ...
+
+    def senalar_mapa(self, zona: str, segundos: float) -> Accion: ...
+
+    def esperar(self, segundos: float) -> Accion: ...
+
+
+class D1(Protocol):
+    """Guía cuadrúpedo: recorre rutas de puntos (x, y) en metros sobre el plano del club."""
+
+    @property
+    def posicion(self) -> Punto: ...
+
+    @property
+    def avance(self) -> float:
+        """Metros recorridos en la ruta actual (la persona lo sigue a cierta distancia)."""
+
+    def ir_a(self, puntos: list[Punto]) -> Accion: ...
+
+    def guiar(self, puntos: list[Punto]) -> Accion:
+        """Recorre la ruta a paso de guía; la persona camina detrás."""
+
+    def descansar(self) -> None:
+        """Se queda quieto en su base, mirando hacia el lobby."""

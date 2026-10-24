@@ -1,0 +1,6 @@
+mujoco>=3.3
+numpy>=1.26
+python-dotenv>=1.0
+pillow>=10.0       # --capturas y textura del video
+imageio[ffmpeg]>=2.30  # video_x2.py
+opencv-python>=4.10  # modo cámara: reconocimiento facial real
