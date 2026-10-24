@@ -36,3 +36,6 @@ Thumbs.db
 simulation/models/*
 !simulation/models/.gitkeep
 simulation/capturas/
+
+# Panel web: configuración local de Supabase (copia de web/js/config.example.js)
+web/js/config.js

@@ -27,8 +27,9 @@ externo) y la orienta según su categoría.
 | [`supabase/`](supabase/) | Base de datos: migraciones SQL, RLS y funciones (`registrar_llegada`, avisos, reservas, `contexto_llegada`) | Camilo |
 | [`simulation/`](simulation/) | Simulación en MuJoCo: club con habitaciones, X2 y D1, la misma lógica de la base y vista en primera persona | Camilo |
 | [`mobile/`](mobile/) | App móvil (Expo): registro, QR, invitaciones, trato y avisos de llegada | Equipo de la app |
+| [`robot_x2/`](robot_x2/) | Control a distancia del X2 Ultra real con AimDK (avanzar, girar, teclado, navegación) | Camilo |
 | [`backend/`](backend/) | Cliente de Supabase en Python para el robot real | Camilo |
-| [`web/`](web/) | Panel web del operador de recepción | Pendiente |
+| [`web/`](web/) | Panel web de recepción y administración (HTML, CSS y JS, sin compilar), del repo [Web_BaseDatos_Nclub](https://github.com/thaliahero/Web_BaseDatos_Nclub) | Equipo de la web |
 | [`docs/`](docs/) | [Supuestos](docs/supuestos.md), [validación](docs/validacion.md) y capturas | Equipo |
 | [`PRESUPUESTO.md`](PRESUPUESTO.md) | Inversión, operación y escalamiento | Equipo |
 

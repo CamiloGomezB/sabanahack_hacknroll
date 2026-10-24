@@ -31,7 +31,13 @@ export function friendlyError(error: unknown, fallback = 'Ocurrió un error. Int
     if (/invalid login credentials/i.test(msg)) return 'Correo o contraseña incorrectos.';
     if (/email not confirmed/i.test(msg)) return 'Debes confirmar tu correo antes de iniciar sesión.';
     if (/user already registered/i.test(msg)) return 'Ya existe una cuenta con ese correo.';
-    if (/solo los miembros|necesitas una cuenta|no puedes revocar|solo el personal|no está configurado/i.test(msg)) {
+    // Mensajes de las funciones de la base (crear_invitacion, reservar_espacio, marcar_tarea…):
+    // ya están en español y explican qué pasó.
+    if (
+      /solo los miembros|necesitas una|no puedes|solo el personal|no está configurado|tu plan no permite|puedes reservar hasta|fuera del rango|fuera de tu horario|ya no está disponible/i.test(
+        msg,
+      )
+    ) {
       return msg;
     }
     if (/permission denied|row-level security/i.test(msg)) return 'No tienes permiso para realizar esta acción.';

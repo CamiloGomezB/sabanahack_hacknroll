@@ -35,10 +35,22 @@ def _upsert(tabla: str, filas: list[dict]) -> None:
               "application/json", {"Prefer": "resolution=merge-duplicates,return=minimal"})
 
 
-def subir_caras(personas: list[dict], carpeta: Path) -> None:
+def subir_caras(personas: list[dict], carpeta: Path, solo: set[str] | None = None,
+                fin_visitas: str | None = None) -> None:
+    """Sube personas, visitas, fotos y huellas. `solo`: claves a subir (las demás no se tocan, así
+    no se reinician sus visitas). `fin_visitas`: hasta cuándo valen las visitas nuevas."""
     datos = dict(personas={}, visitas={}, fotografias=[])
     ahora = datetime.now().astimezone()
     nuevas = datos_falsos.agregar_caras_reales(datos, ahora)
+    if solo is not None:
+        nuevas = [p for p in nuevas if p["clave"] in solo]
+        datos["visitas"] = {k: v for k, v in datos["visitas"].items() if v["clave"] in solo}
+        datos["fotografias"] = [f for f in datos["fotografias"]
+                                if f["clave"].rsplit("_real", 1)[0] in solo]
+        personas = [p for p in personas if p["clave"] in solo]
+    if fin_visitas:
+        for v in datos["visitas"].values():
+            v["fin"] = fin_visitas
     _upsert("personas", [dict(
         id=p["id"], nombre_demo=p["nombre_demo"], vinculo=p["vinculo"], estado="activa",
         requiere_tour=False, horario_inicio=p["horario_inicio"], horario_fin=p["horario_fin"],
@@ -46,7 +58,8 @@ def subir_caras(personas: list[dict], carpeta: Path) -> None:
     if datos["visitas"]:
         _upsert("visitas", [{k: v[k] for k in ("id", "persona_id", "responsable_id", "categoria",
                                                 "motivo", "empresa", "destino", "inicio", "fin",
-                                                "estado")} for v in datos["visitas"].values()])
+                                                "estado", "punto_encuentro")}
+                            for v in datos["visitas"].values()])
     archivos = {f["ruta"]: carpeta / f["archivo"] for p in personas for f in p["fotos"]}
     for ruta, archivo in archivos.items():
         _peticion("POST", f"/storage/v1/object/fotos/{ruta}", archivo.read_bytes(), "image/jpeg",

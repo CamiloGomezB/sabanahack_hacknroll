@@ -62,7 +62,7 @@ un controlador real del robot. La textura de la madera la genera el mismo script
 
 ## Modelo del X2
 
-El modelo oficial del X2 Ultra (`X2-Ultra.xml` v1.4.0 y sus mallas) es de AgiBot y **no se sube al
+El modelo oficial del X2 Ultra (`x2_ultra.xml` de `X2_URDF-v1.3.0` y sus mallas; el `X2-Ultra.xml` de v1.4.0 es la versión nueva, que no usamos) es de AgiBot y **no se sube al
 repositorio**. Se carga desde la carpeta de la hackathon en el Escritorio, o desde la ruta que pongas en
 `X2_MODELO` dentro del `.env`.
 
@@ -96,18 +96,28 @@ Cada caso de `datos_falsos.CASOS` sigue el mismo flujo, y el panel de la izquier
    personal y externos). Si el pasillo central está cerrado (barrera roja), sale una **ruta alterna
    autorizada**. El D1 confirma la llegada; un regular nuevo hace el recorrido de bienvenida.
 
-### Lo que sigue según el perfil (contexto de la llegada)
+### Los cinco flujos: qué hace el X2 según el tipo de persona
 
 Después de `registrar_llegada`, el coordinador consulta `contexto_llegada` (en Supabase, la función del
-mismo nombre; aquí `recepcion.contexto_llegada`) y el X2 dice lo que sigue:
+mismo nombre; aquí `recepcion.contexto_llegada`) y sigue el flujo de su tipo (`flujos.py`, la tabla de
+flujos del equipo). Cada paso es una regla: qué opciones ofrece, si hay cupo, a quién avisa y a
+dónde va. Ollama no decide nada de eso; si está activo, solo reescribe la bienvenida, y su versión
+se descarta si pierde una opción, un lugar o un nombre.
 
-| Perfil | Qué dice y hace |
-|---|---|
-| VIP | Su reserva de hoy ("Tienes una reserva en Sala VIP de 11:00 a 13:00") o dos opciones. Si trae maleta, el D1 se agacha, la recibe en el lomo y la lleva al destino (caso 1). |
-| Regular | La próxima actividad del club ("Hoy hay clase de spinning a las 11:00 en Gimnasio"). |
-| Personal | Cuántas tareas tiene hoy y la primera; la novedad del turno. |
-| Invitado | Avisa a su anfitrión por la app y le dice el punto de encuentro (`visitas.punto_encuentro`). Espera la respuesta: **emitido → recibido → aceptado** ("ya viene en camino") y lo orienta allá. Si no responde en 8 s simulados, queda **sin respuesta**: espera en la sala de espera del lobby y recepción queda enterada (caso 17). |
-| Externo | Avisa a su responsable y resume la orden. Va siempre con el D1, que se agacha para cargar la **caja de herramientas** y lo lleva solo por el pasillo de servicio: la **geocerca** pulsa en naranja mientras dura el recorrido. |
+| Tipo | Qué hace el X2 | Ejemplo |
+|---|---|---|
+| VIP: conserjería | Confirma su reserva, o le ofrece **mesa en el comedor reservado** o **sala privada**. La persona elige, el X2 revisa el cupo, la deja reservada (si no hay, ofrece la otra) y pregunta si quiere indicaciones o que el D1 la acompañe. Si trae maleta, el D1 la carga (caso 1). | "¿Vienes con un plan o quieres que preparemos algo? Puedo consultar una mesa en el comedor reservado o una sala privada." |
+| Regular: aprovechar su membresía | Confirma su reserva, o le propone **spa** o **golf** (primero lo que dice su preferencia en la app), con cupos y costo, y lo reserva. Si trae su propio plan, lo orienta hacia allá (caso 6 elige el spa). | "¿Hoy prefieres relajarte o hacer deporte? Puedo consultar disponibilidad en el spa o una sesión de golf." |
+| Invitado: sentirse esperado | Avisa a su anfitrión, confirma el punto de encuentro registrado y, cuando el anfitrión acepta, ofrece indicaciones o el D1. Sin confirmación espera en el lobby y recepción queda enterada (caso 17). | "Avisaré a Camila que llegaste. El encuentro registrado es en Restaurante." |
+| Personal: empezar preparado | Dice su área y su primera tarea, la novedad de su área (o la primera del día), le muestra la ruta de servicio y le pide confirmar que recibió la novedad. Va a su área asignada (caso 3). | "Hoy tu área asignada es Restaurante; tu primera tarea es el montaje… Novedad: el montaje usa el acceso norte. ¿Me confirmas que recibiste la novedad?" |
+| Externo: llegar listo para su tarea | Explica la orden, las zonas autorizadas (pasillo de servicio y su destino) y avisa al responsable. Sin su confirmación la visita queda en espera. Va siempre con el D1, que carga la **caja de herramientas**; la **geocerca** pulsa en naranja mientras dura el recorrido. | "Vienes al mantenimiento del aire acondicionado. Avisaré a tu responsable, Ana Martínez. El encuentro es en Mantenimiento…" |
+
+Una pregunta por vez: si la bienvenida ya pregunta (plan o novedad), la de la ayuda llega después. En
+el modo cámara se responde con las teclas: **1/2** eligen el plan (**3** = trae su propio plan),
+**1** confirma la novedad y después **1/2/3** eligen la ayuda. Los espacios, cupos y costos del spa y
+el golf son supuestos de la demo (en la maqueta el spa queda en Piscina y el golf en Canchas), y la
+reserva que hace el X2 queda en la simulación: en Supabase `reservar_espacio` la hace la persona
+desde su cuenta.
 
 El aviso lo crea la base (trigger `visitas_avisar_llegada` en Supabase; aquí `recepcion._en_curso`)
 cuando la visita queda en curso. En la app, el anfitrión lo ve en vivo y lo marca como **Recibido** o
@@ -210,7 +220,16 @@ los casos.
 
    ```bash
    python main.py --camara
+   python main.py --camara --supabase   # decide la base real, como el robot
    ```
+
+   Con `--supabase` la decisión la toma Supabase en vivo (`registrar_llegada`, `contexto_llegada`,
+   `registrar_orientacion` y `completar_tour`, con `fuente = 'simulacion'`) usando la clave de
+   servicio del `.env`, con la hora real. Cada llegada queda en `eventos` y la ve recepción en el
+   panel web; el aviso al anfitrión lo crea la base y le llega a la app móvil, y la simulación
+   espera hasta 60 s a que lo acepte ahí (si no, lo marca `sin_respuesta`). Lo pendiente de
+   revisión lo corrige el operador desde el panel web. Si la base no responde, el X2 no decide: la
+   llegada queda pendiente para recepción, igual que el robot real.
 
    La ventana de la cámara muestra en vivo a quién se parece la cara (verde: reconocida; naranja:
    dudosa, desconocida o imagen que no sirve). **Espacio** (en cualquiera de las dos ventanas):
@@ -281,6 +300,31 @@ dónde va lo sigue decidiendo `registrar_llegada`, con reglas fijas que se puede
   python main.py --camara --ollama llama3.2:3b
   ```
 
+## Recepción fija con el X2 real (sin movimiento)
+
+`recepcion_fija.py` es la versión para el robot de verdad que no lo mueve: sin MuJoCo, con la cámara
+del portátil como cámara del X2 y la voz y la cara en el robot (`robot_x2/puente_voz.py`).
+
+```powershell
+python recepcion_fija.py                         # decide la copia local; voz por el portátil
+python recepcion_fija.py --supabase --voz audio  # decide la base real; voz por el parlante del X2
+```
+
+Cuando alguien se pone frente a la cámara: si es miembro o personal con su cara registrada, lo saluda
+por su nombre y le da la bienvenida (con su reserva o su primera tarea); si no lo reconoce, le pide el
+QR y lo lee; con un pase de invitado o externo avisa a su anfitrión o responsable por la app y espera
+su respuesta; si no puede seguir, explica el motivo y lo manda al mostrador. No vuelve a saludar a la
+misma persona mientras siga frente a la cámara (R lo fuerza). Teclas: Q no tengo QR, N el anfitrión
+no responde (sin `--supabase`), Esc salir.
+
+Con `--ollama` (opcional) Ollama reescribe la bienvenida y el "ya viene por ti" con el mismo
+validador que la simulación, más los datos de la frase (hora, lugar, tarea, anfitrión…), que tienen
+que quedar idénticos; si no, o si tarda más de 3,5 s, dice el texto fijo.
+
+La voz en español la genera Windows (`voz_x2.py`, voz Helena es-ES, 16 kHz) y se guarda en caché en
+la carpeta temporal. Despliegue en el robot, red y lo real frente a lo simulado: `robot_x2/README.md`,
+sección "Recepción fija".
+
 ## Robots por separado
 
 El X2 y el D1 son programas aparte con la misma interfaz (`robots/interfaz.py`): `main.py` es el
@@ -292,11 +336,14 @@ métodos, sin tocar el coordinador.
 ## Archivos
 
 - `main.py`: coordinador de la recepción, panel, visor, modo cámara, capturas y validación.
+- `recepcion_fija.py`: recepción con el X2 real quieto (cámara del portátil, Supabase, voz y cara del
+  robot). `voz_x2.py`: voz en español de Windows y cliente del puente de voz del robot.
 - `robots/`: interfaz del X2 y del D1 y sus versiones simuladas.
 - `caras.py`: reconocimiento real (YuNet + SFace). `camaras.py`: cámara del dataset o del computador.
 - `registrar_caras.py` / `supabase_demo.py`: registran las caras reales (local y en Supabase).
 - `generar_qr.py`: QR del equipo e invitaciones sin cara (local y en Supabase).
 - `agente.py`: cómo habla el X2 según la persona y su ánimo (reglas locales + Ollama opcional).
+- `flujos.py`: los cinco flujos por tipo de persona (opciones, cupos, área y novedad, avisos).
 - `dataset.py`: fotos de registro y de prueba, y la huella simulada.
 - `recepcion.py`: reconocimiento por umbrales y la misma lógica de `registrar_llegada` /
   `corregir_evento` / `contexto_llegada` de Supabase, con el aviso al anfitrión; elección del nivel de
@@ -313,9 +360,7 @@ métodos, sin tocar el coordinador.
 
 ## Pendiente
 
-- Reconocimiento real con las fotos del equipo (3 de registro y 2 de prueba por persona).
-- Llamar a `registrar_llegada` y `contexto_llegada` de Supabase desde la simulación
-  (`fuente = 'simulacion'`), para que los avisos lleguen a la app real.
-- Conectar las pantallas de reservas y tareas de la app a las tablas nuevas (hoy muestran datos
-  simulados).
+- Más fotos por persona (hoy hay una de registro por persona) para confirmar los umbrales de SFace.
+- Usar la cámara del robot en lugar de la del portátil.
+- Conectar el coordinador (`main.py`) con `robots/x2_aimdk.py` para el movimiento real.
 - Versión para Meta Quest 3, si hay tiempo.

@@ -1,0 +1,5 @@
+# Los scripts que corren en el robot (Linux) deben quedar con fin de línea LF
+*.sh text eol=lf
+# El Dockerfile y los programas del puente también corren en el robot
+Dockerfile text eol=lf
+robot_x2/*.py text eol=lf

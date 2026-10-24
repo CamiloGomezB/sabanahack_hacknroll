@@ -4,7 +4,7 @@ sirve para animar al X2 en la simulación (patrullar el lobby, volver a su puest
 
 import math
 
-# Medidas de la pierna del X2 (de X2-Ultra.xml v1.4.0).
+# Medidas de la pierna del X2 Ultra (de x2_ultra.xml v1.3.0).
 MUSLO = 0.13685 + 0.1831     # cadera -> rodilla
 CANILLA = 0.282              # rodilla -> tobillo
 TOBILLO_SUELO = 0.078        # alto del tobillo con el pie apoyado

@@ -6,6 +6,11 @@ Proyecto `nclub-sabanahack` (`https://htgcummucmswgileefxv.supabase.co`). Las mi
 (fotos del dataset y resultado facial). Las dos primeras (`miembros` / `accesos_temporales`)
 quedan solo como historial.
 
+Registro desde la app móvil (`20261024000008_registro_app_crea_persona.sql`): al registrarse, el
+trigger `registro_crea_persona` sobre `auth.users` guarda de una vez su fila en `personas` (nombre,
+correo, teléfono y consentimiento que manda la app), aunque todavía no haya confirmado el correo.
+Queda como `regular` y rol `usuario`; VIP, personal y operador los asigna el club.
+
 `seed_demo.sql` carga los datos de la demo (los mismos de la simulación, con los mismos UUID): 15
 personas, 5 visitas, 15 credenciales y 55 fotografías (27 de registro con huella simulada). **Ahora
 no está cargado**: la base solo tiene las personas reales del equipo (ver abajo). Si se necesita otra
@@ -19,6 +24,12 @@ mantenimiento). También está "Mentor de prueba", invitado de Camilo sin cara r
 con QR. Cada uno tiene un QR (los genera `simulation/generar_qr.py`; aquí solo está el hash): personal
 para los miembros y el personal, de visita para los invitados y la externa. Las visitas de Sebastián y Thalia
 valen hasta el 24/10 a las 22:00. Sus fotos están en el bucket `fotos`, en `equipo/<clave>/`.
+
+Segunda tanda (24/10), una persona por flujo: Camila (VIP), Carolina (regular), Mariana (personal,
+turno 6–14), Mini (invitada de Camila) y Samuel (externo de Climatizar SAS a cargo de Mariana), con
+sus QR. Las visitas de Mini y Samuel valen hasta el 24/10 a las 22:00. Se subieron con
+`python registrar_caras.py --supabase --solo <claves>` y `python generar_qr.py --nuevos`, que no
+tocan a los que ya estaban (ni sus visitas ni sus QR).
 
 ## Modelo
 

@@ -52,7 +52,8 @@ async function resolveRealSession(session: Session): Promise<SessionState> {
   const user = session.user;
   let persona = await fetchMyPersona(user.id);
   if (!persona) {
-    // Primer inicio de sesión tras confirmar el correo: se crea el perfil con los datos del registro.
+    // La base ya crea el perfil al registrarse (trigger registro_crea_persona, migración 008).
+    // Esto queda para cuentas de antes de esa migración: se crea con los datos del registro.
     const meta = (user.user_metadata ?? {}) as MetaData;
     persona = await createMyPersona({
       userId: user.id,
@@ -132,7 +133,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       },
     });
     if (error) throw error;
-    // Con confirmación de correo activa no hay sesión todavía: el perfil se crea al primer ingreso.
+    // El perfil ya quedó guardado en personas (lo crea la base con estos datos). Con confirmación
+    // de correo activa no hay sesión todavía: la persona entra después de confirmar.
     return { needsEmailConfirmation: !data.session };
   }, []);
 

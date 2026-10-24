@@ -6,10 +6,10 @@ import type { ProfileKind } from '@/constants/profiles';
 type IconName = ComponentProps<typeof Ionicons>['name'];
 
 /**
- * SUPUESTO / DEMOSTRACIÓN: la base de datos no define los espacios de N Club. Esta lista es una
- * configuración editable con nombres genéricos; hay que reemplazarla por los espacios reales (o por
- * una tabla `espacios`, ver supabase/proposed). La clave (`key`) es lo que se guarda en
- * `visitas.destino` ("clave de la zona").
+ * Espacios con las mismas claves que la tabla `espacios` de Supabase. La pantalla de reservas con
+ * cuenta real lee el catálogo de la base (aquí solo toma el ícono); esta lista sirve para el modo
+ * demostración, los destinos de las invitaciones y los nombres. La clave (`key`) es lo que se
+ * guarda en `visitas.destino` ("clave de la zona").
  */
 export const SPACES_ARE_PLACEHOLDERS = true;
 

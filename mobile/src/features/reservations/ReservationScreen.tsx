@@ -8,13 +8,14 @@ import { PillButton } from '@/components/PillButton';
 import { Screen } from '@/components/Screen';
 import { EmptyView, ErrorView, LoadingView } from '@/components/StateViews';
 import { Txt } from '@/components/Txt';
-import { RESERVATION_RULES, SPACES, SPACES_ARE_PLACEHOLDERS, getSpace, type SpaceConfig } from '@/constants/spaces';
+import { SPACES_ARE_PLACEHOLDERS, type SpaceConfig } from '@/constants/spaces';
 import { colors, radius, spacing } from '@/constants/theme';
 import type { SessionState } from '@/features/auth/SessionProvider';
 import { useAsync } from '@/hooks/useAsync';
+import { friendlyError } from '@/utils/format';
 import { formatDateLabel, formatMinutes, upcomingDates } from '@/utils/time';
 
-import { reservationsRepositoryFor, type Reservation, type Slot } from './repository';
+import { reservationsRepositoryFor, type Reservation, type ReservationsCatalog, type Slot } from './repository';
 
 type ReserveSession = Extract<SessionState, { status: 'real' | 'demo' }> & { profile: 'regular' | 'vip' };
 
@@ -26,7 +27,15 @@ const SLOT_REASON: Record<NonNullable<Slot['reason']>, string> = {
 
 export function ReservationScreen({ session }: { session: ReserveSession }) {
   const repo = useMemo(() => reservationsRepositoryFor(session), [session]);
-  const rules = RESERVATION_RULES[session.profile];
+  const loadCatalog = useCallback(
+    async (): Promise<ReservationsCatalog> => (repo.supported ? repo.catalog() : { spaces: [], locked: [], rules: null }),
+    [repo],
+  );
+  const catalog = useAsync(loadCatalog, 'No se pudieron cargar los espacios del club.');
+  const allowed = catalog.state.data?.spaces ?? [];
+  const locked = catalog.state.data?.locked ?? [];
+  const rules = catalog.state.data?.rules ?? null;
+  const nameOf = (key: string) => [...allowed, ...locked].find((s) => s.key === key)?.name ?? key;
   const [spaceKey, setSpaceKey] = useState<string | null>(null);
   const [date, setDate] = useState<string>(upcomingDates(1)[0]);
   const [start, setStart] = useState<number | null>(null);
@@ -61,9 +70,7 @@ export function ReservationScreen({ session }: { session: ReserveSession }) {
     resetSlot();
   };
 
-  const space = getSpace(spaceKey);
-  const allowed = SPACES.filter((s) => s.reservableBy.includes(session.profile));
-  const locked = SPACES.filter((s) => s.reservableBy.length > 0 && !s.reservableBy.includes(session.profile));
+  const space = allowed.find((s) => s.key === spaceKey);
 
   // Duraciones posibles: horas seguidas libres desde el inicio elegido, hasta el máximo del plan.
   const durationOptions = useMemo(() => {
@@ -87,7 +94,7 @@ export function ReservationScreen({ session }: { session: ReserveSession }) {
     if (r.ok) {
       setResult({
         ok: true,
-        message: `${getSpace(spaceKey)?.name} · ${formatDateLabel(date)} · ${formatMinutes(start)}–${formatMinutes(start + hours * 60)}`,
+        message: `${nameOf(spaceKey)} · ${formatDateLabel(date)} · ${formatMinutes(start)}–${formatMinutes(start + hours * 60)}`,
       });
       setStart(null);
     } else {
@@ -98,20 +105,24 @@ export function ReservationScreen({ session }: { session: ReserveSession }) {
 
   return (
     <Screen back title="Reservar espacio" dense>
-      {repo.supported ? (
+      {!repo.supported ? (
+        <Notice tone="warning" icon="lock-closed-outline" title="Reservas no disponibles" message={repo.reason} />
+      ) : repo.demo ? (
         <Notice
           tone="demo"
           icon="flask-outline"
           title="Disponibilidad simulada"
           message="Modo demostración: la reserva se guarda solo en este teléfono y no se registra en el club."
         />
-      ) : (
-        <Notice tone="warning" icon="construct-outline" title="Reservas pendientes de backend" message={repo.reason} />
-      )}
+      ) : null}
 
       <SectionTitle right={<Badge label={session.profile === 'vip' ? 'PLAN VIP' : 'PLAN REGULAR'} tone="gold" />}>
         Espacios de tu plan
       </SectionTitle>
+      {catalog.state.status === 'loading' ? <LoadingView message="Cargando espacios…" /> : null}
+      {catalog.state.status === 'error' ? (
+        <ErrorView message={catalog.state.error} onRetry={() => void catalog.reload()} />
+      ) : null}
       <View style={styles.spaces}>
         {allowed.map((s) => (
           <SpaceCard key={s.key} space={s} selected={s.key === spaceKey} onPress={() => chooseSpace(s.key)} />
@@ -120,7 +131,7 @@ export function ReservationScreen({ session }: { session: ReserveSession }) {
           <SpaceCard key={s.key} space={s} locked />
         ))}
       </View>
-      {SPACES_ARE_PLACEHOLDERS ? (
+      {repo.supported && repo.demo && SPACES_ARE_PLACEHOLDERS ? (
         <Txt variant="caption" align="center">
           Espacios de ejemplo configurables (src/constants/spaces.ts): aún no hay un catálogo real en la base.
         </Txt>
@@ -182,16 +193,22 @@ export function ReservationScreen({ session }: { session: ReserveSession }) {
 
       {result ? (
         <Notice
-          tone={result.ok ? 'demo' : 'danger'}
+          tone={result.ok ? (repo.supported && repo.demo ? 'demo' : 'success') : 'danger'}
           icon={result.ok ? 'checkmark-circle-outline' : 'alert-circle-outline'}
-          title={result.ok ? 'Reserva de demostración guardada en este teléfono' : 'No se pudo reservar'}
+          title={
+            result.ok
+              ? repo.supported && repo.demo
+                ? 'Reserva de demostración guardada en este teléfono'
+                : 'Reserva confirmada'
+              : 'No se pudo reservar'
+          }
           message={result.message}
         />
       ) : null}
 
       {repo.supported ? (
         <>
-          <SectionTitle>Mis reservas (demo)</SectionTitle>
+          <SectionTitle>{repo.demo ? 'Mis reservas (demo)' : 'Mis reservas'}</SectionTitle>
           <GlassCard>
             {mine.state.status === 'loading' ? <LoadingView /> : null}
             {mine.state.status === 'error' ? <ErrorView message={mine.state.error} onRetry={() => void mine.reload()} /> : null}
@@ -202,7 +219,7 @@ export function ReservationScreen({ session }: { session: ReserveSession }) {
               ? mine.state.data.map((r) => (
                   <View key={r.id} style={styles.reservation}>
                     <View style={styles.flex}>
-                      <Txt variant="label">{getSpace(r.spaceKey)?.name ?? r.spaceKey}</Txt>
+                      <Txt variant="label">{nameOf(r.spaceKey)}</Txt>
                       <Txt variant="caption">
                         {formatDateLabel(r.date)} · {formatMinutes(r.startMinutes)}–{formatMinutes(r.startMinutes + r.hours * 60)}
                       </Txt>
@@ -212,7 +229,11 @@ export function ReservationScreen({ session }: { session: ReserveSession }) {
                       variant="ghost"
                       style={styles.cancel}
                       onPress={async () => {
-                        await repo.cancel(r.id);
+                        try {
+                          await repo.cancel(r.id);
+                        } catch (e) {
+                          setResult({ ok: false, message: friendlyError(e, 'No se pudo cancelar la reserva.') });
+                        }
                         refresh();
                       }}
                     />

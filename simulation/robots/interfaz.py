@@ -4,7 +4,8 @@ El X2 y el D1 son máquinas distintas, cada una con su SDK: el X2 usa AimDK sobr
 SDK agibot_D1_Edu-Ultra. Por eso cada uno tiene su propio programa con esta misma interfaz:
 
 - `x2_sim.py` / `d1_sim.py`: los robots dentro de la simulación de MuJoCo.
-- Más adelante, `x2_aimdk.py` / `d1_sdk.py`: los mismos métodos llamando al robot real.
+- `x2_aimdk.py`: el X2 Ultra real; por ahora sus movimientos (`ir_a`, `volver_al_puesto`,
+  `patrullar`), a través del puente de `robot_x2/`. Más adelante, `d1_sdk.py` para el D1.
 
 El coordinador no sabe cuál de los dos está usando. Las acciones que tardan (caminar, saludar)
 devuelven un iterable que avanza hasta que la acción termina: en la simulación da un paso por

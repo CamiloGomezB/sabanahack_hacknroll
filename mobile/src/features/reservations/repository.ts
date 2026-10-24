@@ -1,15 +1,28 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import type { ProfileKind } from '@/constants/profiles';
-import { RESERVATION_RULES, getSpace } from '@/constants/spaces';
+import { RESERVATION_RULES, SPACES, getSpace, type SpaceConfig } from '@/constants/spaces';
 import type { SessionState } from '@/features/auth/SessionProvider';
-import { addDays, clubDateString, clubMinutesOfDay, parseTimeToMinutes } from '@/utils/time';
+import {
+  cancelarReserva,
+  disponibilidadEspacio,
+  fetchEspacios,
+  fetchMisReservas,
+  fetchReglaReserva,
+  reservarEspacio,
+  type EspacioRow,
+} from '@/services/supabase/reservas';
+import type { Persona } from '@/types/database';
+import { friendlyError } from '@/utils/format';
+import { addDays, clubDateString, clubMinutesOfDay, clubToUtc, parseTimeToMinutes } from '@/utils/time';
 
 /**
- * El esquema actual NO tiene tablas ni funciones de espacios o reservas. Por eso:
- *  - en modo demostración se usa un repositorio local con disponibilidad simulada;
- *  - con una cuenta real no se puede verificar disponibilidad ni guardar: el repositorio lo
- *    declara y la interfaz no permite confirmar. Ver supabase/proposed/ para el modelo necesario.
+ * Dos repositorios con la misma interfaz:
+ *  - real (cuenta de Supabase): catálogo `espacios`, reglas `reglas_reserva` y las funciones
+ *    disponibilidad_espacio / reservar_espacio / cancelar_reserva, que validan plan, horario,
+ *    anticipación y cruces en la base. Lo que se reserva aquí lo ve el robot al recibir a la
+ *    persona (contexto_llegada) y recepción en el panel web.
+ *  - demo: disponibilidad simulada y reservas guardadas solo en este teléfono.
  */
 
 export interface Reservation {
@@ -19,7 +32,7 @@ export interface Reservation {
   startMinutes: number;
   hours: number;
   createdAt: string;
-  demo: true;
+  demo: boolean;
 }
 
 export interface Slot {
@@ -28,12 +41,26 @@ export interface Slot {
   reason?: 'ocupado' | 'pasado' | 'tuya';
 }
 
+export interface ReservationRules {
+  maxAdvanceDays: number;
+  maxHoursPerBooking: number;
+}
+
+export interface ReservationsCatalog {
+  /** Espacios que el plan puede reservar. */
+  spaces: SpaceConfig[];
+  /** Espacios reservables solo con otro plan (se muestran bloqueados). */
+  locked: SpaceConfig[];
+  rules: ReservationRules | null;
+}
+
 export type ReserveResult = { ok: true; reservation: Reservation } | { ok: false; message: string };
 
 export type ReservationsRepository =
   | {
       supported: true;
-      demo: true;
+      demo: boolean;
+      catalog(): Promise<ReservationsCatalog>;
       slots(spaceKey: string, date: string): Promise<Slot[]>;
       reserve(spaceKey: string, date: string, startMinutes: number, hours: number): Promise<ReserveResult>;
       list(): Promise<Reservation[]>;
@@ -44,6 +71,14 @@ export type ReservationsRepository =
 type Active = Extract<SessionState, { status: 'real' | 'pass' | 'demo' }>;
 
 const SLOT_MINUTES = 60;
+
+function splitCatalog(spaces: readonly SpaceConfig[], profile: ProfileKind, rules: ReservationRules | null) {
+  return {
+    spaces: spaces.filter((s) => s.reservableBy.includes(profile)),
+    locked: spaces.filter((s) => s.reservableBy.length > 0 && !s.reservableBy.includes(profile)),
+    rules,
+  };
+}
 
 function hash(text: string): number {
   let h = 2166136261;
@@ -95,6 +130,9 @@ function demoRepository(profile: ProfileKind, personaId: string, open: number, c
   return {
     supported: true,
     demo: true,
+    async catalog() {
+      return splitCatalog(SPACES, profile, rules ?? null);
+    },
     slots,
     async reserve(spaceKey, date, startMinutes, hours) {
       const space = getSpace(spaceKey);
@@ -140,7 +178,90 @@ function demoRepository(profile: ProfileKind, personaId: string, open: number, c
   };
 }
 
+// Íconos de los espacios que solo están en la base (los de la app vienen de constants/spaces).
+const DB_SPACE_ICONS: Record<string, SpaceConfig['icon']> = {
+  canchas: 'tennisball-outline',
+  gimnasio: 'barbell-outline',
+  piscina: 'water-outline',
+  restaurante: 'restaurant-outline',
+  sala_vip: 'diamond-outline',
+};
+
+function toSpaceConfig(row: EspacioRow): SpaceConfig {
+  const local = getSpace(row.clave);
+  return {
+    key: row.clave,
+    name: row.nombre,
+    description: row.descripcion ?? local?.description ?? '',
+    icon: local?.icon ?? DB_SPACE_ICONS[row.clave] ?? 'location-outline',
+    capacity: row.capacidad ?? local?.capacity ?? 0,
+    reservableBy: row.reservable_por.filter((v): v is 'regular' | 'vip' => v === 'regular' || v === 'vip'),
+    invitableBy: local?.invitableBy ?? [],
+  };
+}
+
+function realRepository(profile: ProfileKind, persona: Persona): ReservationsRepository {
+  const toReservation = (r: { id: string; espacio: string; inicio: string; fin: string; creado_en: string }) => {
+    const start = new Date(r.inicio);
+    return {
+      id: r.id,
+      spaceKey: r.espacio,
+      date: clubDateString(start),
+      startMinutes: clubMinutesOfDay(start),
+      hours: Math.round((new Date(r.fin).getTime() - start.getTime()) / 3_600_000),
+      createdAt: r.creado_en,
+      demo: false,
+    } satisfies Reservation;
+  };
+
+  async function list(): Promise<Reservation[]> {
+    return (await fetchMisReservas(persona.id)).map(toReservation);
+  }
+
+  return {
+    supported: true,
+    demo: false,
+    async catalog() {
+      const [rows, regla] = await Promise.all([fetchEspacios(), fetchReglaReserva(persona.vinculo)]);
+      const rules = regla
+        ? { maxAdvanceDays: regla.max_dias_anticipacion, maxHoursPerBooking: regla.max_horas_por_reserva }
+        : null;
+      return splitCatalog(rows.map(toSpaceConfig), profile, rules);
+    },
+    async slots(spaceKey, date) {
+      const [rows, mine] = await Promise.all([disponibilidadEspacio(spaceKey, date), list()]);
+      const now = Date.now();
+      return rows.map((row) => {
+        const start = new Date(row.inicio);
+        const startMinutes = clubMinutesOfDay(start);
+        if (row.disponible) return { startMinutes, available: true };
+        const yours = mine.some(
+          (r) => r.spaceKey === spaceKey && r.date === date && startMinutes >= r.startMinutes && startMinutes < r.startMinutes + r.hours * 60,
+        );
+        const reason: Slot['reason'] = yours ? 'tuya' : start.getTime() <= now ? 'pasado' : 'ocupado';
+        return { startMinutes, available: false, reason };
+      });
+    },
+    async reserve(spaceKey, date, startMinutes, hours) {
+      try {
+        const id = await reservarEspacio(spaceKey, clubToUtc(date, startMinutes), hours);
+        return {
+          ok: true,
+          reservation: { id, spaceKey, date, startMinutes, hours, createdAt: new Date().toISOString(), demo: false },
+        };
+      } catch (e) {
+        return { ok: false, message: friendlyError(e, 'No se pudo guardar la reserva.') };
+      }
+    },
+    list,
+    cancel: cancelarReserva,
+  };
+}
+
 export function reservationsRepositoryFor(session: Active): ReservationsRepository {
+  if (session.status === 'real') {
+    return realRepository(session.profile, session.persona);
+  }
   if (session.status === 'demo' && session.persona) {
     const p = session.persona;
     return demoRepository(
@@ -150,11 +271,7 @@ export function reservationsRepositoryFor(session: Active): ReservationsReposito
       parseTimeToMinutes(p.horario_fin ?? '21:00'),
     );
   }
-  return {
-    supported: false,
-    reason:
-      'La base de datos todavía no tiene espacios ni reservas, así que no se puede verificar la disponibilidad ni guardar una reserva. Puedes consultar los espacios de tu plan.',
-  };
+  return { supported: false, reason: 'Las reservas son para miembros con cuenta.' };
 }
 
 export const SLOT_LENGTH_MINUTES = SLOT_MINUTES;

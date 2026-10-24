@@ -21,7 +21,7 @@ load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 # Los archivos del X2 son de AgiBot y no van en el repo público: se leen desde la carpeta de la
 # hackathon (o desde X2_MODELO en el .env).
 X2_MODELO_DEFECTO = (Path.home() / "Desktop/Hackaton/Agibot X2-X2ultra-20261022T223240Z-1-001"
-                     / "Agibot X2-X2ultra/X2_URDF/X2_URDF-v1.4.0/X2-Ultra.xml")
+                     / "Agibot X2-X2ultra/X2_URDF/X2_URDF-v1.3.0/x2_ultra.xml")
 TEXTURA_MADERA = Path(__file__).resolve().parent / "texturas" / "madera_laminada.png"
 
 COLOR_CATEGORIA = {
@@ -454,7 +454,7 @@ def construir(personas: list[tuple[str, str | None]]) -> mujoco.MjModel:
     ruta_x2 = Path(os.environ.get("X2_MODELO") or X2_MODELO_DEFECTO)
     if not ruta_x2.exists():
         raise FileNotFoundError(f"No encuentro el modelo del X2 en {ruta_x2}. "
-                                "Pon la ruta de X2-Ultra.xml en X2_MODELO dentro del .env.")
+                                "Pon la ruta de x2_ultra.xml (X2_URDF-v1.3.0) en X2_MODELO dentro del .env.")
     spec = mujoco.MjSpec()
     spec.modelname = "nclub"
     spec.option.timestep = 0.001     # igual al del X2, para que no avise al unirlos

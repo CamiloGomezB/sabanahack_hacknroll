@@ -7,7 +7,7 @@ import { Badge, GlassCard, Notice, SectionTitle } from '@/components/Card';
 import { PillButton } from '@/components/PillButton';
 import { ProfileHeader } from '@/components/ProfileHeader';
 import { Screen } from '@/components/Screen';
-import { LoadingView } from '@/components/StateViews';
+import { EmptyView, ErrorView, LoadingView } from '@/components/StateViews';
 import { Txt } from '@/components/Txt';
 import { colors, spacing } from '@/constants/theme';
 import { canRegisterExternal } from '@/features/auth/permissions';
@@ -26,7 +26,7 @@ type StaffSession = Extract<SessionState, { status: 'real' | 'demo' }> & { profi
 export function StaffHome({ session }: { session: StaffSession }) {
   const persona = session.persona;
   const now = useNow();
-  const { tasks, toggle, loading } = useStaffTasks(persona?.id ?? 'sin-persona');
+  const { tasks, toggle, loading, error, simulated, reload } = useStaffTasks(session);
   const [showQr, setShowQr] = useState(false);
   if (!persona) return null;
 
@@ -79,10 +79,13 @@ export function StaffHome({ session }: { session: StaffSession }) {
         )}
       </GlassCard>
 
-      <SectionTitle right={<Badge label="SIMULADO" tone="demo" />}>Tareas del día</SectionTitle>
+      <SectionTitle right={simulated ? <Badge label="SIMULADO" tone="demo" /> : null}>Tareas del día</SectionTitle>
       <GlassCard>
+        {error ? <ErrorView message={error} onRetry={reload} /> : null}
         {loading ? (
           <LoadingView />
+        ) : !simulated && tasks.length === 0 ? (
+          <EmptyView message="El club no te asignó tareas para hoy." icon="checkmark-done-outline" />
         ) : (
           <>
             <Txt variant="caption">
@@ -114,8 +117,9 @@ export function StaffHome({ session }: { session: StaffSession }) {
               </Pressable>
             ))}
             <Txt variant="caption">
-              No existe un modelo de tareas en la base de datos: son tareas de ejemplo y su estado se guarda solo en este
-              teléfono.
+              {simulated
+                ? 'Modo demostración: son tareas de ejemplo y su estado se guarda solo en este teléfono.'
+                : 'Tareas asignadas por el club. Al marcarlas queda registrado en el sistema.'}
             </Txt>
           </>
         )}

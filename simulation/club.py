@@ -47,6 +47,9 @@ ESPACIOS_APP: dict[str, tuple[str, str]] = {   # clave de la app: (nombre en la 
     "comedor-reservado": ("Comedor reservado", "restaurante"),
     "sala-juntas": ("Sala de juntas VIP", "sala_vip"),
     "zona-servicio": ("Zona de servicio", "mantenimiento"),
+    # Opciones del miembro regular (flujos.py); en la maqueta no tienen zona propia.
+    "spa": ("Spa", "piscina"),
+    "golf": ("Campo de práctica de golf", "canchas"),
 }
 
 

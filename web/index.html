@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="N Club — Access Management. Panel de recepción y administración del acceso al club.">
+  <title>N Club — Access Management</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="is-booting">
+
+  <!-- Iconos (sprite SVG) -->
+  <svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+    <symbol id="i-dashboard" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></symbol>
+    <symbol id="i-crown" viewBox="0 0 24 24"><path d="M3 7l4.5 4L12 4l4.5 7L21 7l-2 11H5L3 7z"/><path d="M5 21h14"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+    <symbol id="i-ticket" viewBox="0 0 24 24"><path d="M2 9a3 3 0 0 0 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 0 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2z"/><path d="M13 5v2M13 11v2M13 17v2"/></symbol>
+    <symbol id="i-badge" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M15 8h2M15 12h2M7 16h10"/></symbol>
+    <symbol id="i-hardhat" viewBox="0 0 24 24"><path d="M2 18a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1H3a1 1 0 0 0-1 1z"/><path d="M10 10V5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v5"/><path d="M4 15v-3a6 6 0 0 1 6-6"/><path d="M14 6a6 6 0 0 1 6 6v3"/></symbol>
+    <symbol id="i-history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-edit" viewBox="0 0 24 24"><path d="M17 3a2.85 2.85 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></symbol>
+    <symbol id="i-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></symbol>
+    <symbol id="i-check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></symbol>
+    <symbol id="i-qr" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 14h3v3h-3zM20 14v.01M14 20h.01M17 20h4v-3"/></symbol>
+    <symbol id="i-mail" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></symbol>
+    <symbol id="i-chevron-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-zap" viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></symbol>
+    <symbol id="i-login" viewBox="0 0 24 24"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="m10 17 5-5-5-5"/><path d="M15 12H3"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></symbol>
+    <symbol id="i-face" viewBox="0 0 24 24"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><path d="M9 9h.01M15 9h.01"/></symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+    <symbol id="i-sort" viewBox="0 0 24 24"><path d="m7 15 5 5 5-5M7 9l5-5 5 5"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></symbol>
+    <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+    <symbol id="i-database" viewBox="0 0 24 24"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.7 4 3 9 3s9-1.3 9-3V5"/><path d="M3 12c0 1.7 4 3 9 3s9-1.3 9-3"/></symbol>
+  </svg>
+
+  <!-- ===================== Carga inicial ===================== -->
+  <div class="loading-screen" id="loadingScreen" role="status" aria-live="polite">
+    <div class="logo logo--lg" aria-hidden="true">N</div>
+    <span class="spinner" aria-hidden="true"></span>
+    <p id="loadingText">Cargando…</p>
+  </div>
+
+  <!-- ===================== Inicio de sesión ===================== -->
+  <main class="auth" id="authScreen" hidden>
+    <section class="auth__card" aria-labelledby="authTitle">
+      <div class="auth__brand">
+        <div class="logo logo--lg" aria-hidden="true">N</div>
+        <div>
+          <h1 id="authTitle">N Club</h1>
+          <p>Access Management · panel de recepción y administración</p>
+        </div>
+      </div>
+
+      <form class="auth__form" id="loginForm" novalidate>
+        <p class="form-error" id="loginError" role="alert"></p>
+        <label class="field">
+          <span>Correo</span>
+          <input type="email" name="email" autocomplete="username" required>
+        </label>
+        <label class="field">
+          <span>Contraseña</span>
+          <input type="password" name="password" autocomplete="current-password" required>
+        </label>
+        <button class="btn btn--gold btn--block" type="submit" id="loginSubmit">
+          <svg class="icon"><use href="#i-login"/></svg> Iniciar sesión
+        </button>
+      </form>
+
+      <p class="auth__note">
+        <svg class="icon"><use href="#i-lock"/></svg>
+        <span>Solo para el personal con rol de <strong>administración</strong>, <strong>informática</strong> u <strong>operador</strong>.
+        No hay registro público: las cuentas y los roles los asigna el club. Si olvidaste tu contraseña, contacta a informática.</span>
+      </p>
+
+      <button class="btn btn--link auth__demo" type="button" id="demoBtn">Explorar la demostración con datos ficticios</button>
+      <p class="auth__project" id="authProject"></p>
+    </section>
+  </main>
+
+  <div class="app" id="app" hidden>
+
+    <!-- ===================== Menú lateral ===================== -->
+    <aside class="sidebar" id="sidebar" aria-label="Menú principal">
+      <div class="sidebar__brand">
+        <div class="logo" aria-hidden="true">N</div>
+        <div class="brand__text">
+          <span class="brand__name">N Club</span>
+          <span class="brand__sub">Access Management</span>
+        </div>
+        <button class="icon-btn sidebar__close" id="sidebarClose" aria-label="Cerrar menú">
+          <svg class="icon"><use href="#i-x"/></svg>
+        </button>
+      </div>
+
+      <nav class="sidebar__nav">
+        <p class="nav__label">General</p>
+        <a href="#dashboard" class="nav__link" data-nav="dashboard">
+          <svg class="icon"><use href="#i-dashboard"/></svg><span>Dashboard</span>
+        </a>
+
+        <p class="nav__label">Personas</p>
+        <a href="#vip" class="nav__link" data-nav="vip">
+          <svg class="icon"><use href="#i-crown"/></svg><span>Miembros VIP</span>
+          <span class="nav__count" data-count="vip"></span>
+        </a>
+        <a href="#regulares" class="nav__link" data-nav="regulares">
+          <svg class="icon"><use href="#i-users"/></svg><span>Miembros regulares</span>
+          <span class="nav__count" data-count="regulares"></span>
+        </a>
+        <a href="#invitados" class="nav__link" data-nav="invitados">
+          <svg class="icon"><use href="#i-ticket"/></svg><span>Invitados</span>
+          <span class="nav__count" data-count="invitados"></span>
+        </a>
+        <a href="#personal" class="nav__link" data-nav="personal">
+          <svg class="icon"><use href="#i-badge"/></svg><span>Personal del club</span>
+          <span class="nav__count" data-count="personal"></span>
+        </a>
+        <a href="#externos" class="nav__link" data-nav="externos">
+          <svg class="icon"><use href="#i-hardhat"/></svg><span>Trabajadores externos</span>
+          <span class="nav__count" data-count="externos"></span>
+        </a>
+
+        <p class="nav__label">Control</p>
+        <a href="#historial" class="nav__link" data-nav="historial">
+          <svg class="icon"><use href="#i-history"/></svg><span>Historial de accesos</span>
+          <span class="nav__count nav__count--alert" data-count="historial"></span>
+        </a>
+        <a href="#usuarios" class="nav__link" data-nav="usuarios">
+          <svg class="icon"><use href="#i-shield"/></svg><span>Usuarios y roles</span>
+        </a>
+        <a href="#configuracion" class="nav__link" data-nav="configuracion">
+          <svg class="icon"><use href="#i-settings"/></svg><span>Políticas y sistema</span>
+        </a>
+      </nav>
+
+      <div class="sidebar__footer">
+        <span class="demo-dot" aria-hidden="true"></span>
+        <div>
+          <strong id="modeTitle">Modo demostración</strong>
+          <span id="modeSubtitle">Datos ficticios · sin base de datos</span>
+        </div>
+      </div>
+    </aside>
+    <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+    <!-- ===================== Contenido ===================== -->
+    <div class="main">
+      <header class="topbar">
+        <button class="icon-btn topbar__menu" id="sidebarOpen" aria-label="Abrir menú">
+          <svg class="icon"><use href="#i-menu"/></svg>
+        </button>
+        <div class="topbar__title">
+          <span class="topbar__crumb">N Club</span>
+          <span class="topbar__sep">/</span>
+          <span class="topbar__current" id="topbarTitle">Dashboard</span>
+        </div>
+        <div class="topbar__actions">
+          <span class="demo-pill" id="modePill" title="Toda la información de esta página es ficticia">
+            <svg class="icon"><use href="#i-info"/></svg> <span id="modePillText">DEMO</span>
+          </span>
+          <span class="topbar__date" id="topbarDate"></span>
+          <button class="icon-btn" id="refreshBtn" aria-label="Actualizar datos" title="Actualizar datos">
+            <svg class="icon"><use href="#i-refresh"/></svg>
+          </button>
+          <button class="icon-btn topbar__bell" id="bellBtn" aria-label="Eventos pendientes de revisión">
+            <svg class="icon"><use href="#i-bell"/></svg>
+            <span class="bell__dot" id="bellCount"></span>
+          </button>
+          <button class="user-chip" id="userChip" aria-label="Cuenta y sesión">
+            <span class="avatar avatar--sm avatar--gold" id="userInitials">—</span>
+            <span class="user-chip__text">
+              <strong id="userName">—</strong>
+              <small id="userRole">—</small>
+            </span>
+          </button>
+        </div>
+      </header>
+
+      <div class="demo-banner" role="note" id="modeBanner">
+        <svg class="icon"><use href="#i-info"/></svg>
+        <p id="modeBannerText"></p>
+        <button class="btn btn--gold btn--sm demo-banner__btn" type="button" id="bannerBtn"></button>
+      </div>
+
+      <main class="content" id="content">
+
+        <!-- ===== 1. Dashboard ===== -->
+        <section class="view" id="view-dashboard" data-view="dashboard">
+          <header class="view__header">
+            <div>
+              <h1>Dashboard</h1>
+              <p id="dashSubtitle">Resumen del acceso al club.</p>
+            </div>
+            <div class="view__actions">
+              <button class="btn btn--ghost" data-go="historial">
+                <svg class="icon"><use href="#i-history"/></svg> Ver historial
+              </button>
+              <button class="btn btn--gold demo-only" id="simulateBtn">
+                <svg class="icon"><use href="#i-zap"/></svg> Simular llegada
+              </button>
+            </div>
+          </header>
+
+          <div class="stats-grid" data-stats="dashboard"></div>
+
+          <div class="dash-grid">
+            <article class="card dash-chart">
+              <header class="card__header">
+                <div>
+                  <h2>Accesos por hora</h2>
+                  <p>Últimas 12 horas</p>
+                </div>
+                <div class="legend">
+                  <span><i class="legend__dot legend__dot--ok"></i>Orientados</span>
+                  <span><i class="legend__dot legend__dot--bad"></i>Rechazados / revisión</span>
+                </div>
+              </header>
+              <div class="bar-chart" id="hourChart"></div>
+            </article>
+
+            <article class="card dash-categories">
+              <header class="card__header">
+                <div>
+                  <h2>Por categoría</h2>
+                  <p>Llegadas de las últimas 24 h</p>
+                </div>
+              </header>
+              <div class="cat-list" id="categoryList"></div>
+            </article>
+
+            <article class="card dash-activity">
+              <header class="card__header">
+                <div>
+                  <h2>Actividad reciente</h2>
+                  <p>Últimos eventos en recepción</p>
+                </div>
+                <button class="btn btn--link" data-go="historial">Ver todo</button>
+              </header>
+              <ul class="activity" id="activityList"></ul>
+            </article>
+
+            <article class="card dash-zones">
+              <header class="card__header">
+                <div>
+                  <h2>Ocupación por zona</h2>
+                  <p>Estimada a partir de llegadas recientes</p>
+                </div>
+              </header>
+              <div class="zone-list" id="zoneList"></div>
+            </article>
+
+            <article class="card dash-pending">
+              <header class="card__header">
+                <div>
+                  <h2>Pendientes de revisión</h2>
+                  <p>Requieren decisión de recepción</p>
+                </div>
+              </header>
+              <ul class="mini-list" id="pendingList"></ul>
+            </article>
+
+            <article class="card dash-avisos" data-needs="ver_visitas">
+              <header class="card__header">
+                <div>
+                  <h2>Avisos de llegada sin respuesta</h2>
+                  <p>El anfitrión o responsable no confirmó en la app: contáctalo desde recepción</p>
+                </div>
+              </header>
+              <ul class="mini-list mini-list--grid" id="avisosList"></ul>
+            </article>
+
+            <article class="card dash-upcoming" data-needs="ver_visitas">
+              <header class="card__header">
+                <div>
+                  <h2>Próximas llegadas</h2>
+                  <p>Invitados y externos con acceso vigente</p>
+                </div>
+              </header>
+              <ul class="mini-list mini-list--grid" id="upcomingList"></ul>
+            </article>
+          </div>
+        </section>
+
+        <!-- ===== 2. Miembros VIP ===== -->
+        <section class="view" id="view-vip" data-view="vip" hidden>
+          <header class="view__header">
+            <div>
+              <h1>Miembros VIP</h1>
+              <p>Miembros con acceso a la Sala VIP. Se registran desde la app móvil; el club asigna el vínculo VIP.</p>
+            </div>
+          </header>
+          <div class="stats-grid" data-stats="vip"></div>
+          <div class="card table-card" data-table-root="vip"></div>
+        </section>
+
+        <!-- ===== 3. Miembros regulares ===== -->
+        <section class="view" id="view-regulares" data-view="regulares" hidden>
+          <header class="view__header">
+            <div>
+              <h1>Miembros regulares</h1>
+              <p>Miembros registrados desde la app. Los nuevos hacen el recorrido guiado de bienvenida.</p>
+            </div>
+          </header>
+          <div class="stats-grid" data-stats="regulares"></div>
+          <div class="card table-card" data-table-root="regulares"></div>
+        </section>
+
+        <!-- ===== 4. Invitados ===== -->
+        <section class="view" id="view-invitados" data-view="invitados" hidden>
+          <header class="view__header">
+            <div>
+              <h1>Invitados</h1>
+              <p>Acceso temporal con QR de visita. Vence exactamente 24 h después del registro y el servidor borra sus datos al vencer.</p>
+            </div>
+            <div class="view__actions">
+              <button class="btn btn--gold" data-new="invitado" data-needs="invitar">
+                <svg class="icon"><use href="#i-plus"/></svg> Nueva invitación
+              </button>
+            </div>
+          </header>
+          <div class="stats-grid" data-stats="invitados"></div>
+          <div class="card table-card" data-table-root="invitados"></div>
+        </section>
+
+        <!-- ===== 5. Personal del club ===== -->
+        <section class="view" id="view-personal" data-view="personal" hidden>
+          <header class="view__header">
+            <div>
+              <h1>Personal del club</h1>
+              <p>Empleados con turno asignado (entre 04:00 y 22:00, máximo 8 horas).</p>
+            </div>
+          </header>
+          <div class="stats-grid" data-stats="personal"></div>
+          <div class="card table-card" data-table-root="personal"></div>
+        </section>
+
+        <!-- ===== 6. Trabajadores externos ===== -->
+        <section class="view" id="view-externos" data-view="externos" hidden>
+          <header class="view__header">
+            <div>
+              <h1>Trabajadores externos</h1>
+              <p>Contratistas y proveedores: siempre acompañados. Su acceso vence 24 h después del registro.</p>
+            </div>
+            <div class="view__actions">
+              <button class="btn btn--gold" data-new="externo" data-needs="invitar">
+                <svg class="icon"><use href="#i-plus"/></svg> Registrar externo
+              </button>
+            </div>
+          </header>
+          <div class="stats-grid" data-stats="externos"></div>
+          <div class="card table-card" data-table-root="externos"></div>
+        </section>
+
+        <!-- ===== 7. Historial de accesos ===== -->
+        <section class="view" id="view-historial" data-view="historial" hidden>
+          <header class="view__header">
+            <div>
+              <h1>Historial de accesos</h1>
+              <p id="historialSubtitle">Eventos registrados en recepción por el robot y por simulación.</p>
+            </div>
+          </header>
+          <div class="stats-grid" data-stats="historial"></div>
+          <div class="card table-card" data-table-root="historial"></div>
+        </section>
+
+        <!-- ===== 8. Usuarios y roles ===== -->
+        <section class="view" id="view-usuarios" data-view="usuarios" hidden>
+          <header class="view__header">
+            <div>
+              <h1>Usuarios y roles</h1>
+              <p>Cuentas de la app y del panel. Los roles de panel son solo para el personal del club.</p>
+            </div>
+          </header>
+
+          <div class="roles-grid" id="rolesGrid"></div>
+
+          <div class="card table-card" data-table-root="usuarios"></div>
+
+          <article class="card table-card" id="auditCard" data-needs="ver_auditoria">
+            <header class="card__header">
+              <div>
+                <h2>Auditoría del panel</h2>
+                <p>Cambios de rol y de datos administrativos (últimos 200).</p>
+              </div>
+            </header>
+            <ul class="mini-list" id="auditList"></ul>
+          </article>
+
+          <article class="card permissions">
+            <header class="card__header">
+              <div>
+                <h2>Matriz de permisos</h2>
+                <p>La aplica la base de datos (RLS y funciones); el panel solo oculta lo que no corresponde.</p>
+              </div>
+            </header>
+            <div class="table-scroll">
+              <table class="perm-table">
+                <thead>
+                  <tr><th>Permiso</th><th>Administración</th><th>Informática</th><th>Operador</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td>Entrar al panel</td><td class="yes">✓</td><td class="yes">✓*</td><td class="yes">✓</td></tr>
+                  <tr><td>Ver miembros y personal</td><td class="yes">✓</td><td class="yes">✓*</td><td class="yes">✓</td></tr>
+                  <tr><td>Ver invitados, externos y credenciales</td><td class="yes">✓</td><td class="no">—</td><td class="yes">✓</td></tr>
+                  <tr><td>Ver el historial de eventos</td><td class="yes">✓</td><td class="yes">✓*</td><td class="yes">✓</td></tr>
+                  <tr><td>Crear invitaciones y registrar externos</td><td class="yes">✓</td><td class="no">—</td><td class="yes">✓</td></tr>
+                  <tr><td>Revocar invitaciones</td><td class="yes">✓</td><td class="no">—</td><td class="yes">✓</td></tr>
+                  <tr><td>Corregir eventos pendientes</td><td class="yes">✓</td><td class="no">—</td><td class="yes">✓</td></tr>
+                  <tr><td>Asignar roles (informática no toca administradores)</td><td class="yes">✓*</td><td class="yes">✓*</td><td class="no">—</td></tr>
+                  <tr><td>Editar estado, vínculo, horario y vigencia</td><td class="yes">✓*</td><td class="no">—</td><td class="no">—</td></tr>
+                  <tr><td>Ver la auditoría del panel</td><td class="yes">✓*</td><td class="yes">✓*</td><td class="no">—</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="perm-note">* Requiere las migraciones propuestas 008 y 009 (<span class="cell-mono">supabase/propuestas/</span>). Sin ellas, la base solo distingue operador y administrador, con los mismos permisos de recepción.</p>
+          </article>
+        </section>
+
+        <!-- ===== 9. Políticas y sistema ===== -->
+        <section class="view" id="view-configuracion" data-view="configuracion" hidden>
+          <header class="view__header">
+            <div>
+              <h1>Políticas y sistema</h1>
+              <p>Reglas que aplica el servidor. El panel no las puede cambiar: se modifican con migraciones aprobadas.</p>
+            </div>
+          </header>
+          <div class="policy-grid" id="policyGrid"></div>
+        </section>
+
+      </main>
+
+      <footer class="footer">
+        <span>N Club — Access Management · v0.3</span>
+        <span id="footerMode">Datos ficticios de demostración</span>
+      </footer>
+    </div>
+  </div>
+
+  <!-- Ventana modal (detalles, formularios y confirmaciones) -->
+  <dialog class="modal" id="modal" aria-labelledby="modalTitle">
+    <div class="modal__inner" id="modalInner"></div>
+  </dialog>
+
+  <!-- Notificaciones -->
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+
+  <!-- Supabase JS v2 y generador de QR (versiones fijas). Si no cargan, la demostración sigue funcionando. -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/supabase.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

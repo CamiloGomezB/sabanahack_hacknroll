@@ -185,7 +185,8 @@ def agregar_caras_reales(datos: dict, ahora: datetime) -> list[dict]:
             h = timedelta(hours=1)
             v = dict(id=vid(clave), clave=clave, persona_id=pid(clave), categoria=rol,
                      inicio=ahora - h, fin=ahora + 4 * h, estado="programada",
-                     responsable_id=pid(anfitrion if rol == "invitado" else responsable),
+                     responsable_id=pid(r.get("anfitrion") or anfitrion if rol == "invitado"
+                                        else r.get("responsable") or responsable),
                      destino="restaurante" if rol == "invitado" else "mantenimiento",
                      empresa=None if rol == "invitado" else "Climatizar SAS",
                      motivo="Almuerzo" if rol == "invitado" else "Orden de trabajo OT-1043",
@@ -249,7 +250,8 @@ def agregar_qr_reales(datos: dict, ahora: datetime) -> list[dict]:
 #   al reconocimiento ni a la decisión.
 # foto: foto de prueba que representa la llegada (None = la persona prefiere no usar la cámara).
 # qr: token que muestra si el robot se lo pide. servicio: False = la verificación no responde.
-# ayuda: lo que elige la persona. destino: a dónde va (los miembros lo eligen al llegar).
+# ayuda: lo que elige la persona. destino: a dónde va (los miembros lo eligen al llegar: una de
+#   las opciones de flujos.py, como "spa", o su propio plan). El personal va a su área asignada.
 # correccion: lo que decide recepción si el caso queda pendiente.
 # equipaje: el VIP trae maleta y el D1 se la lleva. anfitrion_responde: False = el anfitrión no
 #   confirma el aviso de la app y el invitado espera en el lobby.
@@ -266,16 +268,17 @@ CASOS = [
     _caso(2, "Miembro regular, primera visita (recorrido)", "andres", "Andrés Gómez", "andres_p1",
           ayuda="acompanamiento", destino="gimnasio",
           esperado=dict(robot="regular", destino="gimnasio", ayuda="acompanamiento")),
-    _caso(3, "Personal en su turno", "carlos", "Carlos Pérez", "carlos_p1", ayuda="mapa",
-          destino="oficinas", esperado=dict(robot="personal", destino="oficinas", ayuda="mapa")),
+    _caso(3, "Personal en su turno: va a su área asignada", "carlos", "Carlos Pérez",
+          "carlos_p1", ayuda="mapa",
+          esperado=dict(robot="personal", destino="piscina", ayuda="mapa")),
     _caso(4, "Invitada: cara desconocida, QR vigente", "sofia", "Sofía Herrera", "sofia_p1",
           "qr-sofia", ayuda="acompanamiento",
           esperado=dict(robot="invitado", destino="restaurante", ayuda="acompanamiento")),
     _caso(5, "Trabajador externo (acompañamiento obligatorio)", "jorge", "Jorge Ramírez",
           "jorge_p1", "qr-jorge", ayuda="mapa",
           esperado=dict(robot="externo", destino="mantenimiento", ayuda="acompanamiento")),
-    _caso(6, "Prefiere no usar la cámara: solo QR", "laura", "Laura Martínez", None, "qr-laura",
-          ayuda="indicacion", destino="piscina",
+    _caso(6, "Prefiere no usar la cámara: solo QR; elige el spa", "laura", "Laura Martínez",
+          None, "qr-laura", ayuda="indicacion", destino="spa",
           esperado=dict(robot="regular", destino="piscina", ayuda="indicacion")),
     _caso(7, "QR vencido", "pedro", "Pedro Castillo", "pedro_p1", "qr-pedro",
           esperado=dict(robot="rechazado")),

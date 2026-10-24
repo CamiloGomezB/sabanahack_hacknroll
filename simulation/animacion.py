@@ -17,8 +17,13 @@ POSE_NEUTRA = {
 POSE_SALUDO = {"right_shoulder_roll_joint": -1.3, "right_shoulder_yaw_joint": -1.5,
                "right_elbow_joint": -1.5}
 POSE_SENALAR = {"right_shoulder_roll_joint": -1.45, "right_shoulder_pitch_joint": -0.35,
-                "right_elbow_joint": -0.05, "head_yaw_joint": -0.45}
-POSE_ESCANEAR = {"head_pitch_joint": 0.15}
+                "right_elbow_joint": -0.05, "head_yaw_joint": -0.34}
+# El X2 Ultra no tiene cabeceo de cabeza: para mirar a la persona inclina un poco la cintura
+POSE_ESCANEAR = {"waist_pitch_joint": 0.12}
+
+# Límites del X2 Ultra (manual de AimDK, 1.7.3). El modelo v1.3.0 trae la junta head_pitch, pero
+# en el Ultra solo se mueve el giro de la cabeza (±20°); el cabeceo es de la versión nueva.
+LIMITES_ULTRA = {"head_yaw_joint": (-0.349, 0.349), "head_pitch_joint": (0.0, 0.0)}
 
 ALTO_X2 = 0.68          # pelvis del X2 de pie
 YAW_PUESTO = math.pi    # en su puesto mira hacia la entrada
@@ -58,10 +63,12 @@ class Mundo:
     def __init__(self, model: mujoco.MjModel, data: mujoco.MjData, n_personas: int):
         self.m, self.d = model, data
         self._qx2 = {}
+        self._rango_x2 = {}   # ninguna pose ni gesto pasa los límites de las juntas del Ultra
         for j in range(model.njnt):
             nombre = model.joint(j).name
             if nombre.startswith("x2_") and model.jnt_type[j] == mujoco.mjtJoint.mjJNT_HINGE:
                 self._qx2[nombre[3:]] = model.jnt_qposadr[j]
+                self._rango_x2[nombre[3:]] = LIMITES_ULTRA.get(nombre[3:], tuple(model.jnt_range[j]))
         self.x2_actual = {k: 0.0 for k in self._qx2}
         self.x2_objetivo = dict(POSE_NEUTRA)
         self.x2_extra = {}  # oscilaciones (saludar, negar) que se suman a la pose
@@ -122,10 +129,11 @@ class Mundo:
         else:
             self.x2_alto += (ALTO_X2 - self.x2_alto) * alfa
         if self.x2_buscando:
-            self.x2_extra = {"head_yaw_joint": 0.55 * math.sin(self.t * 1.1),
-                             "head_pitch_joint": 0.08}
+            self.x2_extra = {"head_yaw_joint": 0.34 * math.sin(self.t * 1.1)}
         for nombre, adr in self._qx2.items():
-            self.d.qpos[adr] = self.x2_actual[nombre] + self.x2_extra.get(nombre, 0.0)
+            bajo, alto = self._rango_x2[nombre]
+            valor = self.x2_actual[nombre] + self.x2_extra.get(nombre, 0.0)
+            self.d.qpos[adr] = min(max(valor, bajo), alto)
         c, s = math.cos(self.x2_yaw), math.sin(self.x2_yaw)
         xy = self.x2_xy + np.array([-s, c]) * sway
         self._base("x2_floating_base_joint", xy, self.x2_alto, self.x2_yaw + giro)

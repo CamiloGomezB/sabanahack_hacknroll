@@ -68,8 +68,11 @@ No se llaman `registrar_llegada`, `registrar_orientacion`, `completar_tour` ni `
 
 - `20261024000006_reservas_tareas_servicios.sql`: `espacios`, `reglas_reserva`, `reservas` (sin
   solapes), `tareas_personal`, `solicitudes_servicio` y sus funciones (`disponibilidad_espacio`,
-  `reservar_espacio`, `cancelar_reserva`, `marcar_tarea`, `resolver_solicitud`) con RLS. Las pantallas
-  de reservas y tareas siguen con sus datos SIMULADOS: falta conectarlas a estas funciones.
+  `reservar_espacio`, `cancelar_reserva`, `marcar_tarea`, `resolver_solicitud`) con RLS. Con una
+  cuenta real, la pantalla de reservas usa el catálogo `espacios`, `reglas_reserva` y esas funciones
+  (`src/services/supabase/reservas.ts`), y las tareas del personal salen de `tareas_personal` y se
+  marcan con `marcar_tarea` (`src/services/supabase/tareas.ts`). El robot ve esas reservas y tareas
+  al recibir a la persona (`contexto_llegada`).
 - `20261024000007_anfitrion_avisos_trato.sql`:
   - `personas.trato`: "Cómo prefieres que el robot te hable" en **Mi perfil** (solo el tono).
   - `avisos`: cuando el robot registra la llegada de un invitado o externo, su anfitrión o
@@ -105,8 +108,8 @@ Bienvenida → inicio de sesión / registro / "Tengo un pase" / modo demostraci�
 | Revocar invitación | Real (`revocar_invitacion`) | Local |
 | Turno del personal | Real (`horario_inicio` / `horario_fin`) | Demo |
 | Consentimiento biométrico | Real | Solo visual |
-| Reservas | **Bloqueadas**: no hay tablas; se ven los espacios del plan | Disponibilidad simulada, guardada en el teléfono |
-| Tareas del personal | **Simuladas** (sin tabla), estado local | Simuladas |
+| Reservas | **Reales**: disponibilidad, reserva y cancelación en Supabase, con las reglas del plan | Disponibilidad simulada, guardada en el teléfono |
+| Tareas del personal | **Reales**: las asignadas para hoy en `tareas_personal`; marcarlas queda en la base | Simuladas, estado local |
 | Consulta / contratación de externos | **Pendiente**: se prepara y comparte, no se registra | Igual |
 | Espacios del club | **Supuestos** configurables en `src/constants/spaces.ts` | Igual |
 | Foto para reconocimiento facial | Pendiente (no se captura en la app) | — |
@@ -124,7 +127,7 @@ src/
     auth/                   SessionProvider (real / pase / demo), permisos
     memberships/            estado de membresía, QR personal, panel regular/VIP
     invitations/            servicio real/demo, validación, formulario
-    reservations/           repositorio demo / no soportado, pantalla
+    reservations/           repositorio real (Supabase) y demo, pantalla
     staff/                  turno, tareas, solicitud de servicio externo, panel
     temporary-access/       pase (código, estado), almacenamiento, pantalla de invitado/externo
     demo/                   datos de demostración

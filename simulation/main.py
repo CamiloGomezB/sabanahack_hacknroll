@@ -24,6 +24,7 @@ import numpy as np
 import agente as voz
 import dataset
 import datos_falsos
+import flujos
 from agente import OLLAMA_MODELO, Agente
 from animacion import Mundo
 from camaras import QR_DEMO, CamaraDataset
@@ -31,6 +32,7 @@ from caras import MODELO as MODELO_REAL
 from club import (BASE_D1, ENTRADA, FUERA, POS_ANTE_RECEPCION, POS_ESPERA, POS_VISITANTE,
                   RECORRIDO_TOUR, SALIDA_VISITANTE, TRAMO_BLOQUEABLE, ZONAS, nodo_de_zona,
                   nombre_destino, punto_llegada, puntos, ruta, usa_tramo, zona_de_destino)
+from base_real import BaseReal, ErrorBase
 from datos_falsos import pid
 from escena import ascii, construir
 from recepcion import (AYUDAS, CATEGORIAS, MARGEN, MOTIVOS, UMBRAL, UMBRAL_DUDA, aviso_de,
@@ -126,6 +128,7 @@ ESPERA_PASO = 10.0
 # Aviso al anfitrión o responsable (SIMULADO: en la app real lo marca la persona). Segundos
 # simulados hasta que lo marca como recibido y aceptado, o hasta darlo por sin respuesta.
 AVISO_RECIBIDO, AVISO_ACEPTADO, ESPERA_AVISO = 1.5, 3.5, 8.0
+ESPERA_AVISO_REAL = 60.0   # con --supabase responde una persona en la app móvil: más tiempo
 ESTADOS_AVISO = ["emitido", "recibido", "aceptado"]
 
 
@@ -136,11 +139,14 @@ class Escenario:
     PUESTOS_CAMARA = 10   # figuras que se reciclan para las llegadas por cámara
 
     def __init__(self, hora: str, bloquear_en: int | None = 7, webcam=None,
-                 agente: Agente | None = None):
+                 agente: Agente | None = None, base: BaseReal | None = None):
         self.webcam = webcam
         self.agente = agente or Agente()
+        self.base = base   # --supabase: decide la base real (solo con la cámara: personas reales)
         h, mnt = (int(x) for x in hora.split(":"))
         self.inicio = datetime.now().replace(hour=h, minute=mnt, second=0, microsecond=0)
+        if base is not None:
+            self.inicio = datetime.now()   # la base decide con su hora: la simulación va igual
         if webcam is None:
             self.datos = datos_falsos.cargar(self.inicio)
             self.llegadas = list(datos_falsos.CASOS)
@@ -175,6 +181,7 @@ class Escenario:
         self.automatico = webcam is None
         self.pedir_siguiente = False
         self.eleccion = None        # nivel de ayuda elegido con las teclas 1/2/3 (modo cámara)
+        self.numero = None          # tecla 1/2/3 al elegir plan o confirmar la novedad
         self.con_invitacion = False # tecla I: trae invitación u orden y empieza por el QR
         self.anfitrion_no_responde = False   # tecla N (modo cámara): el aviso queda sin respuesta
         self.patrulla = None        # el X2 recorre el lobby mientras no llega nadie
@@ -290,6 +297,11 @@ class Escenario:
     def _contexto(self, r, caso) -> dict:
         """contexto_llegada: trato, reserva, punto de encuentro, tareas y novedades."""
         ctx = contexto_llegada(self.datos, r.persona_id, r.visita_id, self.ahora())
+        if self.base is not None and getattr(r, "evento_id", None):
+            try:   # lo real manda; las actividades del club solo existen en la simulación
+                ctx.update(self.base.contexto_llegada(r.persona_id, r.visita_id))
+            except ErrorBase as e:
+                self.hud["Base de datos"] = f"contexto_llegada sin respuesta: {e}"
         ctx["equipaje"] = bool(caso.get("equipaje"))
         self.trato = voz.leer_trato(ctx["trato"])
         if ctx["trato"]:
@@ -308,6 +320,10 @@ class Escenario:
     def _esperar_aviso(self, r, caso, fila):
         """App del anfitrión o responsable (SIMULADA): el aviso que creó registrar_llegada pasa de
         emitido a recibido y aceptado, o se da por sin respuesta. Devuelve el estado final."""
+        if self.base is not None and getattr(r, "evento_id", None):
+            estado = yield from self._esperar_aviso_real(r)
+            fila["aviso"] = estado
+            return estado
         aviso = aviso_de(self.datos, r.visita_id)
         if aviso is None:
             return None
@@ -329,6 +345,38 @@ class Escenario:
                 break
             yield
         fila["aviso"] = aviso["estado"]
+        return aviso["estado"]
+
+    def _esperar_aviso_real(self, r):
+        """--supabase: el aviso lo creó la base (trigger visitas_avisar_llegada) y lo responde el
+        anfitrión o responsable en la app móvil real. Se consulta cada segundo."""
+        try:
+            aviso = self.base.aviso_de(r.visita_id)
+        except ErrorBase as e:
+            self.hud["Base de datos"] = f"no se pudo leer el aviso: {e}"
+            return None
+        if aviso is None:
+            return None
+        inicio = consulta = self.mundo.t
+        while aviso["estado"] not in ("aceptado", "sin_respuesta"):
+            if self.mundo.t - inicio >= ESPERA_AVISO_REAL:
+                try:
+                    self.base.aviso_sin_respuesta(aviso["id"])   # recepción lo ve en el panel web
+                except ErrorBase as e:
+                    self.hud["Base de datos"] = f"no se pudo marcar el aviso: {e}"
+                aviso["estado"] = "sin_respuesta"
+                break
+            if self.mundo.t - consulta >= 1.0:
+                consulta = self.mundo.t
+                try:
+                    aviso = self.base.aviso_de(r.visita_id) or aviso
+                except ErrorBase:
+                    pass
+            self.hud["App"] = (f"app de {r.responsable} (REAL, Supabase): {aviso['mensaje']} "
+                               f"({aviso['estado'].replace('_', ' ')})")
+            yield
+        self.hud["App"] = (f"app de {r.responsable} (REAL, Supabase): "
+                           f"{aviso['estado'].replace('_', ' ')}")
         return aviso["estado"]
 
     def _recibir_carga(self, carga: str):
@@ -362,6 +410,60 @@ class Escenario:
         self.x2.decir(plan.texto)
         return plan
 
+    def _elegir_plan(self, r, caso, opciones, fila):
+        """VIP o regular sin reserva: elige una de las dos opciones (en el modo cámara, con 1/2; 3 =
+        trae su propio plan). El X2 revisa el cupo y la deja reservada. Devuelve el espacio al que
+        va, o el plan propio (None = el destino de siempre)."""
+        self.hud["Plan"] = " · ".join(f"{k + 1} {o.nombre}" for k, o in enumerate(opciones))
+        quiere = None
+        if caso.get("camara"):
+            self.numero = None
+            self.hud["Plan"] += " · 3 otro plan"
+            if self.webcam is not None:
+                self.webcam.mensaje = ascii("Elige: " + self.hud["Plan"])
+            while self.numero is None:
+                yield
+            elegida = opciones[self.numero - 1] if self.numero <= len(opciones) else None
+        else:
+            yield from self.x2.esperar(1.5)          # la persona piensa y responde
+            quiere = caso.get("plan") or caso["destino"]
+            elegida = next((o for o in opciones if o.clave == quiere), None)
+            if elegida is None and not quiere:
+                elegida = opciones[0]
+        if elegida is None:
+            # Ya traía su plan (otra actividad disponible): el X2 la orienta hacia allá.
+            fila["plan"] = "propio"
+            self.hud["Plan"] = "trae su propio plan"
+            self._decir("Perfecto, como prefieras. " + voz.cierre(r))
+            yield from self.x2.esperar(2.0)
+            return quiere
+        texto, espacio = flujos.confirmar(self.datos, r, elegida, opciones, self.ahora())
+        fila["plan"] = espacio or "sin cupo"
+        self.hud["Plan"] = (f"reservó {nombre_destino(espacio)}" if espacio
+                            else "sin cupo: recepción le busca otro horario")
+        if espacio and self.base is not None:
+            self.hud["Plan"] += " (en la simulación; la app no reserva por el robot)"
+        self._decir(texto + (" " + voz.cierre(r) if espacio else ""))
+        yield from self.x2.esperar(3.0)
+        return espacio
+
+    def _confirmar_novedad(self, r, caso, fila):
+        """Personal: confirma que recibió la novedad (en el modo cámara, con la tecla 1)."""
+        self.hud["Novedad"] = "esperando que confirme que la recibió"
+        if caso.get("camara"):
+            self.numero = None
+            self.hud["Novedad"] += " (tecla 1)"
+            if self.webcam is not None:
+                self.webcam.mensaje = "1: recibi la novedad"
+            while self.numero is None:
+                yield
+        else:
+            yield from self.x2.esperar(1.5)
+        fila["novedad"] = True
+        self.hud["Novedad"] = "confirmada"
+        self._decir("Gracias por confirmar. " + voz.cierre(r))
+        yield from self.x2.esperar(2.0)
+
     def nueva_llegada(self) -> None:
         """Modo cámara: llega la persona que está frente a la cámara del computador."""
         n = len(self.llegadas) + 1
@@ -378,7 +480,8 @@ class Escenario:
         self._fig_actual, self.trato = fig, None
         fila = dict(n=caso["n"], titulo=caso["titulo"], esperado=caso["esperado"], robot=None,
                     final=None, destino=None, ayuda=None, ruta=None, llegada=None,
-                    correccion=None, cara=None, aviso=None, humano=False, tiempo=None)
+                    correccion=None, cara=None, aviso=None, humano=False, tiempo=None,
+                    plan=None, novedad=None)
         self.resultados.append(fila)
         self.hud = {k: v for k, v in self.hud.items() if k == "Aviso"}
         self.hud.update({"Caso": f"{caso['n']}" + ("" if caso.get("camara") else
@@ -448,8 +551,18 @@ class Escenario:
             yield from x2.esperar(1.0)
 
         # 2. Consulta de la acreditación y la visita vigentes → categoría confirmada.
-        r = registrar_llegada(self.datos, embedding, caso["qr"], self.ahora(),
-                              captura_valida=valida, servicio=servicio, modo=modo, modelo=modelo)
+        r = None
+        if self.base is not None and caso.get("camara") and servicio:
+            try:
+                r = self.base.registrar_llegada(self.datos, embedding, caso["qr"], valida, modo, modelo)
+                self.hud["Base de datos"] = f"Supabase: registrar_llegada → evento {r.evento_id[:8]}"
+            except ErrorBase as e:
+                # Igual que el robot: sin la base no decide; queda pendiente para recepción.
+                self.hud["Base de datos"] = f"Supabase no responde: {e}"
+                servicio = False
+        if r is None:
+            r = registrar_llegada(self.datos, embedding, caso["qr"], self.ahora(),
+                                  captura_valida=valida, servicio=servicio, modo=modo, modelo=modelo)
         fila["robot"] = r.categoria if r.resultado == "orientado" else r.resultado
         fila["cara"] = r.evidencia["cara"]
         self.hud["Acreditación"] = describir_acreditacion(r, self.datos)
@@ -521,11 +634,22 @@ class Escenario:
             plan = yield from self._hablar(r, animo, ctx)
         fila["final"] = r.categoria
 
-        # El destino puede venir del punto de encuentro de la visita, de la app móvil (clave de sus
-        # espacios), de la reserva del VIP o de la simulación.
+        # 2d. El flujo de su tipo (flujos.py): el VIP y el regular sin reserva eligen plan y el X2
+        #     revisa el cupo; el personal confirma que recibió la novedad. El invitado y el externo
+        #     siguen con el aviso a su anfitrión o responsable (2c).
+        oferta = plan.oferta if plan and plan.oferta else flujos.oferta(r, ctx)
+        destino_flujo = oferta.destino
+        if oferta.opciones:
+            destino_flujo = yield from self._elegir_plan(r, caso, oferta.opciones, fila)
+        elif oferta.confirmar_novedad:
+            yield from self._confirmar_novedad(r, caso, fila)
+
+        # El destino puede venir del punto de encuentro de la visita, del flujo (reserva, plan
+        # elegido o área asignada al personal), de la app móvil (clave de sus espacios) o de la
+        # simulación.
         visita = ctx["visita"] or {}
         pedido = ((visita.get("punto_encuentro") if r.categoria in ("invitado", "externo")
-                   else None) or r.destino or caso["destino"]
+                   else None) or destino_flujo or r.destino or caso["destino"]
                   or (ctx["reservas"][0]["espacio"] if ctx["reservas"] else None))
         destino = zona_de_destino(pedido) or DESTINO_POR_CATEGORIA[r.categoria]
         lugar_nombre = nombre_destino(pedido if zona_de_destino(pedido) else destino)
@@ -566,6 +690,13 @@ class Escenario:
                 yield
             preferida = self.eleccion
         nivel, nota = elegir_ayuda(r, preferida)
+        if self.base is not None and getattr(r, "evento_id", None):
+            try:
+                self.base.registrar_orientacion(r.evento_id, nivel, destino,
+                                                int((mundo.t - inicio) * 1000))
+                self.hud["Base de datos"] = f"Supabase: registrar_orientacion → {nivel}, {destino}"
+            except ErrorBase as e:
+                self.hud["Base de datos"] = f"registrar_orientacion sin respuesta: {e}"
         tour = r.categoria == "regular" and r.requiere_tour and nivel == "acompanamiento"
         self.hud["Orientación"] = (f"{lugar_nombre} · {AYUDAS[nivel]}"
                                    + (" · recorrido" if tour else ""))
@@ -647,6 +778,11 @@ class Escenario:
         if tour:
             self.datos["personas"][r.persona_id]["requiere_tour"] = False
             self.hud["Base de datos"] = f"completar_tour({r.persona_id}) → requiere_tour = false"
+            if self.base is not None and getattr(r, "evento_id", None):
+                try:
+                    self.base.completar_tour(r.persona_id)
+                except ErrorBase as e:
+                    self.hud["Base de datos"] = f"completar_tour sin respuesta: {e}"
         self.fondo.append(self._d1_vuelve())
         yield from mundo.caminar(fig, [lugar])
 
@@ -737,6 +873,7 @@ class Escenario:
         for clave, titulo in [("X2", "X2"), ("Paso", "Paso"), ("Persona", "Persona"),
                               ("Categoría", "Categoría"), ("Trato", "Trato"), ("Ánimo", "Ánimo"),
                               ("QR", "QR"), ("X2 dice", "X2 dice"), ("App", "App"),
+                              ("Plan", "Plan"), ("Novedad", "Novedad"),
                               ("Orientación", "Va a"), ("D1", "D1"), ("Geocerca", "Geocerca"),
                               ("Aviso", "Aviso")]:
             if clave in self.hud:
@@ -757,7 +894,7 @@ class Escenario:
         else:
             lado += ["", "REGISTRADOS"] + [f"{p['nombre_demo']}: " + self._categoria_de(p)
                                            for p in self.registradas + self.invitados]
-            teclas = ("Espacio: llegada · I: traigo QR · Q: sin QR · 1/2/3: ayuda\n"
+            teclas = ("Espacio: llegada · I: traigo QR · Q: sin QR · 1/2/3: plan o ayuda\n"
                       f"N: anfitrión {'NO responde' if self.anfitrion_no_responde else 'responde'}")
         textos = [
             (mujoco.mjtGridPos.mjGRID_TOPLEFT, "N CLUB\n" + izq, "\n" + der),
@@ -966,6 +1103,7 @@ def con_visor(esc: Escenario, velocidad: float) -> None:
             esc.anfitrion_no_responde = not esc.anfitrion_no_responde
         elif codigo in TECLAS_AYUDA:
             esc.eleccion = TECLAS_AYUDA[codigo]
+            esc.numero = int(chr(codigo))     # también elige plan o confirma la novedad
         elif codigo == 32:        # espacio
             esc.pedir_siguiente = True
         elif codigo == ord("A"):
@@ -1072,14 +1210,25 @@ def main() -> None:
                       help="usar la cámara N del computador como cámara del X2 (por defecto 0)")
     args.add_argument("--ollama", nargs="?", const=OLLAMA_MODELO, metavar="MODELO",
                       help=f"redactar lo que dice el X2 con Ollama local (por defecto {OLLAMA_MODELO})")
+    args.add_argument("--supabase", action="store_true",
+                      help="con --camara: decide la base real (registrar_llegada, avisos a la app "
+                           "móvil, casos pendientes en el panel web) en vez de la copia local")
     a = args.parse_args()
+    if a.supabase and a.camara is None:
+        args.error("--supabase solo va con --camara: la base real solo tiene a las personas reales")
     agente = Agente(a.ollama)
     print(f"Agente del X2: {agente.estado}")
+    base = None
+    if a.supabase:
+        base = BaseReal()
+        if not base.disponible():
+            raise SystemExit(f"No hay conexión con Supabase ({base.url}).")
+        print(f"Base de datos: Supabase en vivo ({base.url}), con la hora real")
     if a.camara is not None:
         from camaras import CamaraWebcam
         webcam = CamaraWebcam(a.camara)
         try:
-            con_visor(Escenario(a.hora, webcam=webcam, agente=agente), a.velocidad)
+            con_visor(Escenario(a.hora, webcam=webcam, agente=agente, base=base), a.velocidad)
         finally:
             webcam.cerrar()
         return

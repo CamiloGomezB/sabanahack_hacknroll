@@ -70,8 +70,10 @@ def pase(token: str, persona: dict, invitados: list[dict], equipo: list[dict]) -
     nombres = {p["clave"]: p["nombre"] for p in equipo}
     rol = persona.get("rol", "invitado")
     datos = next((i for i in invitados if i["clave"] == persona["clave"]), {})
-    anfitrion = datos.get("anfitrion") or next(p["clave"] for p in equipo
-                                                if p["rol"] in ("vip", "regular"))
+    responsable = persona.get("responsable") if rol == "externo" else persona.get("anfitrion")
+    anfitrion = (datos.get("anfitrion") or responsable
+                 or next(p["clave"] for p in equipo if p["rol"] in
+                         (("personal", "vip", "regular") if rol == "externo" else ("vip", "regular"))))
     externo = rol == "externo"
     desde = datetime.now(timezone.utc) - timedelta(hours=1)
     cuerpo = dict(v=1, kind="real", tipo=rol, token=token, nombre=persona["nombre"],
@@ -101,6 +103,8 @@ def main() -> None:
     args.add_argument("--destino", default="restaurante")
     args.add_argument("--subir", action="store_true",
                       help="no genera nada: sube a Supabase los invitados y QR ya generados")
+    args.add_argument("--nuevos", action="store_true",
+                      help="solo genera QR para quien todavía no tiene: los demás no cambian")
     args.add_argument("--pases", action="store_true",
                       help="rehace los QR de invitados y externos como pase, con el mismo token")
     a = args.parse_args()
@@ -128,6 +132,8 @@ def main() -> None:
     CARPETA.mkdir(parents=True, exist_ok=True)
     credenciales = {c["clave"]: c for c in actual["credenciales"]}
     personas = {p["clave"]: p for p in equipo} | {i["clave"]: i for i in invitados}
+    if a.nuevos:
+        quienes = [(c, n) for c, n in quienes if c not in credenciales]
     if a.pases:
         # Lee el token del QR que ya existe (la base solo tiene su hash) y lo vuelve pase.
         lector = cv2.QRCodeDetector()
