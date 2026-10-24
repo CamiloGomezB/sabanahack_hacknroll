@@ -1,13 +1,13 @@
 # N Club — Access Management
 
 > Viene del repo [thaliahero/Web_BaseDatos_Nclub](https://github.com/thaliahero/Web_BaseDatos_Nclub)
-> (commit `d220388`). Aquí vive junto a la app móvil (`../mobile`, la `App_registro_Nclub` que
+> (commit `d220388`). Aquí vive junto a la app móvil (`../appmobile`, la `App_registro_Nclub` que
 > menciona la documentación), la simulación y las migraciones (`../supabase`).
 >
 > **En este repositorio:**
 > - La conexión va en `js/config.js`, que no se sube (está en `.gitignore`). Se copia de
 >   `js/config.example.js` con `EXPO_PUBLIC_SUPABASE_URL` y `EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY`
->   de `mobile/.env`: el mismo proyecto que la app y la simulación. Sin ese archivo abre en modo
+>   de `appmobile/.env`: el mismo proyecto que la app y la simulación. Sin ese archivo abre en modo
 >   demostración. Con el Supabase falso (`node tests/serve-mock.js`) manda el falso.
 > - En el proyecto real ya están aplicadas las migraciones 001 a 007 de `../supabase/migrations`,
 >   así que `espacios` (006) existe y los avisos (007) también. Las propuestas 008 a 010 de

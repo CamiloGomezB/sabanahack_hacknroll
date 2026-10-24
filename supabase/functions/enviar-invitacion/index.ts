@@ -71,7 +71,7 @@ async function sha256Hex(texto: string): Promise<string> {
   return Array.from(new Uint8Array(hash)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-/** Mismo formato que mobile/src/features/temporary-access/pass.ts: encodePassCode. */
+/** Mismo formato que appmobile/src/features/temporary-access/pass.ts: encodePassCode. */
 function encodePassCode(pass: Record<string, unknown>): string {
   const bytes = new TextEncoder().encode(JSON.stringify(pass));
   let binario = "";

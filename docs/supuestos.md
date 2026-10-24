@@ -11,7 +11,7 @@ conocer la operación real de un club específico.
   registrar reservas, actividades, tareas del personal, novedades y puntos de encuentro.
 - El plano del club (lobby, Sala VIP, piscina, canchas, restaurante, gimnasio, oficinas y
   mantenimiento) es **inventado** para la demo (`simulation/club.py`). Los espacios de la app
-  (`mobile/src/constants/spaces.ts`) también son provisionales; cada uno se ubica en la zona más
+  (`appmobile/src/constants/spaces.ts`) también son provisionales; cada uno se ubica en la zona más
   parecida del plano.
 - La recepción humana es un **punto físico de atención** en el lobby. El operador ve los casos y
   decide desde su panel web.
