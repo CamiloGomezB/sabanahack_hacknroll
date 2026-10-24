@@ -25,6 +25,8 @@ export interface Persona {
   vinculo_hasta: string | null;
   consentimiento_biometrico: boolean;
   consentimiento_fecha: string | null;
+  /** Cómo prefiere que le hable el robot (solo el tono). Migración 20261024000007. */
+  trato: string | null;
 }
 
 export interface Visita {
@@ -59,4 +61,4 @@ export interface CrearInvitacionResult {
 
 /** Columnas de personas que se piden al servidor. */
 export const PERSONA_COLUMNS =
-  'id,usuario_id,nombre_demo,email,telefono,vinculo,rol,estado,requiere_tour,horario_inicio,horario_fin,vinculo_hasta,consentimiento_biometrico,consentimiento_fecha';
+  'id,usuario_id,nombre_demo,email,telefono,vinculo,rol,estado,requiere_tour,horario_inicio,horario_fin,vinculo_hasta,consentimiento_biometrico,consentimiento_fecha,trato';

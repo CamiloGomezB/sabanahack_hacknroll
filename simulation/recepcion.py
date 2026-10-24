@@ -7,6 +7,10 @@ zonas). Reconocer una cara no prueba que la membresía esté activa.
 
 El robot orienta con base en reglas: no crea permisos ni resuelve contradicciones por intuición.
 Lo que no puede confirmar queda "pendiente de revisión" y pasa a recepción.
+
+Cuando la visita de un invitado o externo queda en curso se crea el aviso para su anfitrión o
+responsable (el trigger visitas_avisar_llegada en Supabase), y contexto_llegada() reúne lo que el
+robot necesita para el siguiente paso: trato, reserva, punto de encuentro, tareas y novedades.
 """
 
 from dataclasses import dataclass, field
@@ -15,6 +19,7 @@ from datetime import datetime, timedelta
 
 import numpy as np
 
+from club import nombre_destino, zona_de_destino
 from dataset import distancia
 from datos_falsos import hash_token
 
@@ -105,6 +110,61 @@ def _con_visita(r: Resolucion, datos: dict, v: dict) -> Resolucion:
         r.responsable = datos["personas"][v["responsable_id"]]["nombre_demo"]
     r.ayuda_disponible = ayuda_disponible(v["categoria"])
     return r
+
+
+def _en_curso(datos: dict, v: dict, ahora: datetime) -> None:
+    """La visita empieza. Si es de un invitado o externo con responsable, se avisa por la app
+    (estado emitido; recibido y aceptado los marca la persona avisada)."""
+    if v["estado"] == "en_curso":
+        return
+    v["estado"] = "en_curso"
+    if v["categoria"] not in ("invitado", "externo") or not v["responsable_id"]:
+        return
+    nombre = datos["personas"][v["persona_id"]]["nombre_demo"]
+    punto = v.get("punto_encuentro") or v["destino"]
+    lugar = nombre_destino(punto) if zona_de_destino(punto) else (punto or "recepción")
+    if v["categoria"] == "invitado":
+        mensaje = f"{nombre} llegó a N Club. Encuentro: {lugar}."
+    else:
+        empresa = f" ({v['empresa']})" if v["empresa"] else ""
+        mensaje = (f"{nombre}{empresa} llegó para: {v['motivo'] or 'su orden de trabajo'}. "
+                   f"Encuentro: {lugar}.")
+    datos.setdefault("avisos", []).append(dict(
+        id=str(uuid.uuid4()), destinatario_id=v["responsable_id"], visita_id=v["id"],
+        tipo=f"llegada_{v['categoria']}", mensaje=mensaje, punto_encuentro=punto,
+        estado="emitido", creado_en=ahora, actualizado_en=ahora))
+
+
+def aviso_de(datos: dict, visita_id: str | None) -> dict | None:
+    return next((a for a in reversed(datos.get("avisos", [])) if a["visita_id"] == visita_id), None)
+
+
+def contexto_llegada(datos: dict, persona_id: str | None, visita_id: str | None,
+                     ahora: datetime) -> dict:
+    """Misma forma que public.contexto_llegada: lo que el robot consulta tras registrar la
+    llegada para saber cómo hablarle a la persona y qué sigue."""
+    p = datos["personas"].get(persona_id) or {}
+    v = datos["visitas"].get(visita_id) or {}
+    responsable = datos["personas"].get(v.get("responsable_id")) or {}
+    reservas = sorted((r for r in datos.get("reservas", [])
+                       if r["persona_id"] == persona_id and r["estado"] == "confirmada"
+                       and r["inicio"].date() == ahora.date() and r["fin"] > ahora),
+                      key=lambda r: r["inicio"])
+    tareas = sorted((t for t in datos.get("tareas", [])
+                     if t["persona_id"] == persona_id and t["estado"] == "pendiente"),
+                    key=lambda t: t["hora"] or ahora.time())
+    actividades = sorted((a for a in datos.get("actividades", []) if a["hora"] > ahora),
+                         key=lambda a: a["hora"])
+    return dict(
+        trato=p.get("trato"),
+        reservas=reservas,
+        visita=dict(responsable=responsable.get("nombre_demo"),
+                    punto_encuentro=v.get("punto_encuentro") or v.get("destino"),
+                    motivo=v.get("motivo"), empresa=v.get("empresa")) if v else None,
+        tareas=tareas,
+        novedades=datos.get("novedades", []) if p.get("vinculo") == "personal" else [],
+        actividades=actividades if v.get("categoria") in ("regular", "vip") else [],
+    )
 
 
 def _visita_activa(datos: dict, persona: dict, ahora: datetime) -> dict | None:
@@ -219,11 +279,11 @@ def registrar_llegada(datos: dict, embedding: np.ndarray | None, token: str | No
             if v["estado"] == "cancelada":
                 r.resultado, r.motivo = "rechazado", "visita_cancelada"
             else:
-                v["estado"] = "en_curso"
+                _en_curso(datos, v, ahora)
                 _con_visita(r, datos, v)
         elif (v := _visita_activa(datos, persona, ahora)) is not None:
             # Invitado o externo reconocido por cara: entra con su invitación u orden de trabajo.
-            v["estado"] = "en_curso"
+            _en_curso(datos, v, ahora)
             _con_visita(r, datos, v)
         elif persona["vinculo"] == "ninguno":
             r.resultado, r.motivo = "rechazado", "sin_visita_activa"
@@ -260,6 +320,8 @@ def corregir(datos: dict, r: Resolucion, persona_id: str, categoria: str, motivo
               and v["inicio"] <= ahora <= v["fin"]), None)
     if v is None:
         v = _nueva_visita(datos, persona, categoria, ahora, ahora + timedelta(hours=4))
+    else:
+        _en_curso(datos, v, ahora)
     r.resultado, r.correccion, r.persona_id = "corregido", motivo, persona_id
     r.nombre, r.requiere_tour = persona["nombre_demo"], persona["requiere_tour"]
     _con_visita(r, datos, v)

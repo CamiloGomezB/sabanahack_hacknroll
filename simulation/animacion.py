@@ -5,10 +5,11 @@ import math
 import mujoco
 import numpy as np
 
+import marcha_x2
 from club import BASE_D1, NODOS, POS_X2, TRAMO_BLOQUEABLE, ZONAS
 
-# Poses del X2 (calibradas con capturas). El X2 mira hacia -x, así que su brazo derecho queda
-# del lado +y, donde está el mapa.
+# Poses del X2 (calibradas con capturas). En su puesto el X2 mira hacia -x, así que su brazo
+# derecho queda del lado +y, donde está el mapa.
 POSE_NEUTRA = {
     "right_shoulder_roll_joint": -0.1, "left_shoulder_roll_joint": 0.1,
     "right_elbow_joint": -0.3, "left_elbow_joint": -0.3,
@@ -19,9 +20,20 @@ POSE_SENALAR = {"right_shoulder_roll_joint": -1.45, "right_shoulder_pitch_joint"
                 "right_elbow_joint": -0.05, "head_yaw_joint": -0.45}
 POSE_ESCANEAR = {"head_pitch_joint": 0.15}
 
+ALTO_X2 = 0.68          # pelvis del X2 de pie
+YAW_PUESTO = math.pi    # en su puesto mira hacia la entrada
+
+# Patas del D1 (muslo, pierna) para calcular el alto del cuerpo: de pie y agachado.
+PATAS_D1_REAL = dict(muslo=0.20, pierna=0.21, pie=0.025, de_pie=(0.8, -1.6), agachado=(1.25, -2.5))
+PATAS_D1_PRIM = dict(muslo=0.20, pierna=0.20, pie=0.0, de_pie=(0.6, -1.2), agachado=(1.1, -2.2))
+
 
 def _quat_yaw(yaw: float) -> np.ndarray:
     return np.array([math.cos(yaw / 2), 0, 0, math.sin(yaw / 2)])
+
+
+def _angulo(a: float) -> float:
+    return (a + math.pi) % (2 * math.pi) - math.pi
 
 
 class Ruta:
@@ -53,18 +65,34 @@ class Mundo:
         self.x2_actual = {k: 0.0 for k in self._qx2}
         self.x2_objetivo = dict(POSE_NEUTRA)
         self.x2_extra = {}  # oscilaciones (saludar, negar) que se suman a la pose
+        # El X2 camina: posición, orientación y fase de la marcha.
+        self.x2_xy = np.array(POS_X2, dtype=float)
+        self.x2_yaw = self.x2_yaw_objetivo = YAW_PUESTO
+        self.x2_andando = False
+        self.x2_rampa = 0.0          # 0 quieto, 1 andando a paso normal
+        self.x2_fase = 0.0
+        self.x2_alto = ALTO_X2
+        self.x2_buscando = False     # mueve la cabeza buscando a quién recibir
 
         self.d1_xy = np.array(BASE_D1, dtype=float)
         self.d1_yaw = math.pi / 2
         self.d1_fase = 0.0
         self.d1_andando = False
         self.d1_real = any(model.joint(j).name == "d1_dd_abduccion" for j in range(model.njnt))
+        self.d1_agachado = 0.0       # 0 de pie, 1 agachado (para recibir o entregar la carga)
+        self.d1_agachar = 0.0
+        self.d1_carga = None         # "maleta" | "caja" | None
+        self._carga = {c: model.geom(f"d1_{c}").id for c in ("maleta", "caja")}
 
         self.personas = [{"xy": np.array([-30.0, i]), "yaw": 0.0, "fase": 0.0, "andando": False}
                          for i in range(n_personas)]
         self._mapa_geoms = {z: model.geom(f"mapa_{z}").id for z in ZONAS}
         self._mapa_rgba = {z: model.geom_rgba[g].copy() for z, g in self._mapa_geoms.items()}
+        self._servicio = [g for g in range(model.ngeom)
+                          if (model.geom(g).name or "").endswith("_servicio")]
+        self._servicio_rgba = model.geom_rgba[self._servicio[0]].copy() if self._servicio else None
         self.zona_resaltada = None
+        self.geocerca = False    # resalta el pasillo de servicio (externo acompañado)
         self.bloqueado = False   # pasillo central cerrado (tecla B)
         self.t = 0.0
 
@@ -74,27 +102,58 @@ class Mundo:
         self.d.qpos[a:a + 3] = [xy[0], xy[1], z]
         self.d.qpos[a + 3:a + 7] = _quat_yaw(yaw)
 
-    def aplicar(self, dt: float) -> None:
-        self.t += dt
-        # X2: fijo en la recepción, articulaciones suavizadas hacia la pose objetivo.
-        self._base("x2_floating_base_joint", POS_X2, 0.68, math.pi)
+    def _aplicar_x2(self, dt: float) -> None:
+        objetivo_rampa = 1.0 if self.x2_andando else 0.0
+        self.x2_rampa += (objetivo_rampa - self.x2_rampa) * min(1.0, dt * 3)
+        self.x2_yaw += _angulo(self.x2_yaw_objetivo - self.x2_yaw) * min(1.0, dt * 4)
         alfa = 1 - math.exp(-dt * 6)
-        for nombre, adr in self._qx2.items():
+        for nombre in self._qx2:
             objetivo = self.x2_objetivo.get(nombre, 0.0)
             self.x2_actual[nombre] += (objetivo - self.x2_actual[nombre]) * alfa
+        sway, giro = 0.0, 0.0
+        if self.x2_rampa > 0.02:
+            self.x2_fase = (self.x2_fase + dt / marcha_x2.PERIODO) % 1.0
+            juntas, sway, z, giro = marcha_x2.pose_marcha(self.x2_fase, self.x2_rampa)
+            for nombre, valor in juntas.items():
+                # La marcha manda sobre la pose; al detenerse, la pose vuelve sola.
+                previo = self.x2_actual[nombre]
+                self.x2_actual[nombre] = previo + (valor - previo) * min(1.0, self.x2_rampa * 4)
+            self.x2_alto = z
+        else:
+            self.x2_alto += (ALTO_X2 - self.x2_alto) * alfa
+        if self.x2_buscando:
+            self.x2_extra = {"head_yaw_joint": 0.55 * math.sin(self.t * 1.1),
+                             "head_pitch_joint": 0.08}
+        for nombre, adr in self._qx2.items():
             self.d.qpos[adr] = self.x2_actual[nombre] + self.x2_extra.get(nombre, 0.0)
+        c, s = math.cos(self.x2_yaw), math.sin(self.x2_yaw)
+        xy = self.x2_xy + np.array([-s, c]) * sway
+        self._base("x2_floating_base_joint", xy, self.x2_alto, self.x2_yaw + giro)
 
-        # D1: trote con pares diagonales en contrafase. Pose de pie del modelo real (muslo 0.20 m,
-        # pierna 0.21 m: cadera 0.8 y rodilla -1.6 dejan el cuerpo a 0.31 m) o del de primitivas.
+    def _aplicar_d1(self, dt: float) -> None:
+        # Trote con pares diagonales en contrafase; para recibir o entregar algo se agacha.
         if self.d1_andando:
             self.d1_fase += dt * 2 * math.pi * 2.2
-        cadera, rodilla, base = (0.8, -1.6, 0.31) if self.d1_real else (0.6, -1.2, 0.33)
+        self.d1_agachado += (self.d1_agachar - self.d1_agachado) * min(1.0, dt * 3)
+        p = PATAS_D1_REAL if self.d1_real else PATAS_D1_PRIM
+        k = self.d1_agachado
+        cadera = p["de_pie"][0] + (p["agachado"][0] - p["de_pie"][0]) * k
+        rodilla = p["de_pie"][1] + (p["agachado"][1] - p["de_pie"][1]) * k
+        base = (p["muslo"] * math.cos(cadera) + p["pierna"] * math.cos(cadera + rodilla)
+                + p["pie"])
         for pata, desfase in [("dd", 0), ("ti", 0), ("di", math.pi), ("td", math.pi)]:
             s = math.sin(self.d1_fase + desfase) if self.d1_andando else 0.0
             self.d.qpos[self.m.joint(f"d1_{pata}_cadera").qposadr[0]] = cadera + 0.35 * s
             self.d.qpos[self.m.joint(f"d1_{pata}_rodilla").qposadr[0]] = rodilla - 0.4 * max(s, 0)
         alto = base + (0.01 * abs(math.sin(self.d1_fase)) if self.d1_andando else 0)
         self._base("d1_base", self.d1_xy, alto, self.d1_yaw)
+        for carga, g in self._carga.items():
+            self.m.geom_rgba[g][3] = 1.0 if self.d1_carga == carga else 0.0
+
+    def aplicar(self, dt: float) -> None:
+        self.t += dt
+        self._aplicar_x2(dt)
+        self._aplicar_d1(dt)
 
         for i, p in enumerate(self.personas):
             if p["andando"]:
@@ -104,14 +163,21 @@ class Mundo:
 
         (xa, ya), (xb, yb) = NODOS[TRAMO_BLOQUEABLE[0]], NODOS[TRAMO_BLOQUEABLE[1]]
         medio = ((xa + xb) / 2, (ya + yb) / 2)
-        self._base("barrera_base", medio, 0.0 if self.bloqueado else -5.0,
-                   math.atan2(yb - ya, xb - xa))
+        # Abierto: la barrera se guarda lejos (bajo el piso se seguiría viendo su etiqueta).
+        self._base("barrera_base", medio if self.bloqueado else (-60.0, -60.0),
+                   0.0 if self.bloqueado else -5.0, math.atan2(yb - ya, xb - xa))
 
-        # Zona resaltada en el mapa: parpadea.
+        # Zona resaltada en el mapa: parpadea. Geocerca: el pasillo de servicio pulsa.
         for z, g in self._mapa_geoms.items():
             rgba = self._mapa_rgba[z].copy()
             if z == self.zona_resaltada and int(self.t * 4) % 2 == 0:
                 rgba[:3] = 1.0
+            self.m.geom_rgba[g] = rgba
+        for g in self._servicio:
+            rgba = self._servicio_rgba.copy()
+            if self.geocerca:
+                brillo = 0.5 + 0.5 * math.sin(self.t * 5)
+                rgba[:3] = rgba[:3] * (1 - brillo) + np.array([1.0, 0.35, 0.1]) * brillo
             self.m.geom_rgba[g] = rgba
 
         mujoco.mj_forward(self.m, self.d)
@@ -147,6 +213,28 @@ class Mundo:
         yield from self.pose_x2(POSE_SENALAR, segundos)
         self.x2_objetivo = dict(POSE_NEUTRA)
         self.zona_resaltada = None
+
+    def x2_caminar(self, puntos):
+        """El X2 camina por la ruta (arranca y frena suave) mirando hacia donde va."""
+        ruta = Ruta([tuple(self.x2_xy)] + list(puntos))
+        s = 0.0
+        self.x2_andando = True
+        try:
+            while s < ruta.largo:
+                s += marcha_x2.VELOCIDAD * max(self.x2_rampa, 0.15) * self._dt
+                self.x2_xy, yaw = ruta.en(s)
+                self.x2_yaw_objetivo = yaw
+                yield
+        finally:
+            self.x2_andando = False
+
+    def x2_girar(self, yaw: float, segundos: float = 0.8):
+        self.x2_yaw_objetivo = yaw
+        yield from self.esperar(segundos)
+
+    def d1_agacharse(self, agachado: bool, segundos: float = 1.0):
+        self.d1_agachar = 1.0 if agachado else 0.0
+        yield from self.esperar(segundos)
 
     def caminar(self, i: int, puntos, velocidad: float = 1.3):
         p = self.personas[i]

@@ -1,8 +1,14 @@
 # Simulación (MuJoCo)
 
-Simulación del lobby de N Club con el X2 Ultra en la recepción y el D1 guiando a las personas que lo
+Simulación de N Club con el X2 Ultra en la recepción y el D1 guiando a las personas que lo
 necesitan. **Todo lo que se ve aquí es simulado**: los robots, las personas, el reconocimiento facial y
 los datos (de prueba, en `datos_falsos.py`).
+
+El club tiene **habitaciones** (lobby, Sala VIP, piscina, canchas, restaurante, gimnasio, oficinas y
+mantenimiento) con muros de 2,4 m, una puerta por zona y su mobiliario, **sin techo** para verlas desde
+arriba. Mientras no llega nadie, el **X2 camina por el lobby buscando a quién recibir** (mueve la
+cabeza de lado a lado); cuando alguien entra por la puerta, vuelve a su puesto junto al mapa, se gira
+y lo saluda con la mano. La caminata es la misma cinemática inversa del video (`marcha_x2.py`).
 
 ## Cómo correrla
 
@@ -21,15 +27,25 @@ Opciones:
 | `--hora 15:30` | Hora simulada de inicio (por defecto 10:00). Cambia quién puede entrar. |
 | `--velocidad 2` | Corre la demo más rápido. |
 | `--sin-cierre` | No cierra el pasillo central a mitad de la demo (por defecto se cierra antes del caso 7). |
-| `--validar` | Sin ventana: corre los 16 casos y escribe `docs/validacion.md` (esperado frente a observado). |
-| `--capturas carpeta/` | Sin ventana: guarda una imagen cada `--cada` segundos. |
+| `--validar` | Sin ventana: corre los 17 casos y escribe `docs/validacion.md` (esperado frente a observado y métricas). |
+| `--capturas carpeta/` | Sin ventana: guarda una imagen cada `--cada` segundos (`--vista visitante`: desde los ojos de quien entra). |
 
 Teclas en el visor: **Espacio** = siguiente caso, **A** = modo automático/manual, **B** = cerrar o
-abrir el pasillo central, **C** = cambiar cámara (general, recepción, seguir al D1).
+abrir el pasillo central, **C** = cambiar cámara.
+
+Cámaras (tecla **C**), en este orden:
+
+1. **Visitante** (la inicial): los ojos de la persona que está entrando, o de la siguiente en la fila
+   si no hay nadie. Cada figura lleva una cámara a 1,62 m mirando un poco hacia abajo (`vista_<i>`).
+2. **General**: el club desde arriba, desde la entrada hacia el fondo.
+3. **Recepción**: el X2 de frente con el mapa.
+4. **D1**: sigue al cuadrúpedo.
 
 El panel de la izquierda muestra el caso en curso como **evidencia → categoría → orientación**
-(qué vio el robot, qué categoría confirmó y cómo orienta). Arriba a la derecha están el estado de
-**recepción** y la lista de casos con su resultado (OK si lo obtenido es lo esperado).
+(qué vio el robot, qué categoría confirmó y cómo orienta), además del **trato** que pidió la
+persona, el **aviso en la app** de su anfitrión o responsable (SIMULADO) y lo que hace el D1. Arriba a
+la derecha están el estado de **recepción** y la lista de casos con su resultado (OK si lo obtenido es
+lo esperado).
 
 ## Video del X2 caminando (para la presentación)
 
@@ -80,28 +96,60 @@ Cada caso de `datos_falsos.CASOS` sigue el mismo flujo, y el panel de la izquier
    personal y externos). Si el pasillo central está cerrado (barrera roja), sale una **ruta alterna
    autorizada**. El D1 confirma la llegada; un regular nuevo hace el recorrido de bienvenida.
 
+### Lo que sigue según el perfil (contexto de la llegada)
+
+Después de `registrar_llegada`, el coordinador consulta `contexto_llegada` (en Supabase, la función del
+mismo nombre; aquí `recepcion.contexto_llegada`) y el X2 dice lo que sigue:
+
+| Perfil | Qué dice y hace |
+|---|---|
+| VIP | Su reserva de hoy ("Tienes una reserva en Sala VIP de 11:00 a 13:00") o dos opciones. Si trae maleta, el D1 se agacha, la recibe en el lomo y la lleva al destino (caso 1). |
+| Regular | La próxima actividad del club ("Hoy hay clase de spinning a las 11:00 en Gimnasio"). |
+| Personal | Cuántas tareas tiene hoy y la primera; la novedad del turno. |
+| Invitado | Avisa a su anfitrión por la app y le dice el punto de encuentro (`visitas.punto_encuentro`). Espera la respuesta: **emitido → recibido → aceptado** ("ya viene en camino") y lo orienta allá. Si no responde en 8 s simulados, queda **sin respuesta**: espera en la sala de espera del lobby y recepción queda enterada (caso 17). |
+| Externo | Avisa a su responsable y resume la orden. Va siempre con el D1, que se agacha para cargar la **caja de herramientas** y lo lleva solo por el pasillo de servicio: la **geocerca** pulsa en naranja mientras dura el recorrido. |
+
+El aviso lo crea la base (trigger `visitas_avisar_llegada` en Supabase; aquí `recepcion._en_curso`)
+cuando la visita queda en curso. En la app, el anfitrión lo ve en vivo y lo marca como **Recibido** o
+**Voy en camino**; en la simulación esa respuesta es SIMULADA (en el modo cámara, **N** hace que el
+anfitrión no responda).
+
+### Cómo hablarle a cada persona (trato)
+
+En la app, cada persona escribe en **Mi perfil → "Cómo prefieres que el robot te hable"**
+(`personas.trato`, hasta 400 caracteres). El agente lo lee (`agente.leer_trato`):
+
+- "usted" o "formal" → el X2 trata de usted ("¿Cómo prefiere que le ayude?"); "tutéame" lo evita.
+- "breve", "corto", "directo", "prisa" → saludo corto y sin la información de más (actividades,
+  novedades).
+- "llámame Sebas" → el X2 usa ese nombre.
+
+Solo cambia el tono, igual que el ánimo: nunca los permisos ni a dónde puede ir.
+
 | # | Caso | Reconocimiento | Esperado |
 |---|---|---|---|
-| 1 | VIP | identidad candidata | VIP → Sala VIP, indicación |
+| 1 | VIP con reserva y maleta | identidad candidata | VIP → Sala VIP, indicación; el D1 lleva la maleta |
 | 2 | Regular nuevo | identidad candidata | Regular → recorrido + Gimnasio con el D1 |
 | 3 | Personal en su turno | identidad candidata | Personal → Oficinas, mapa |
 | 4 | Invitada | desconocida → QR | Invitado → Restaurante con el D1 |
-| 5 | Externo que pide mapa | desconocida → QR | Externo → Mantenimiento, acompañamiento obligatorio |
+| 5 | Externo que pide mapa | desconocida → QR | Externo → Mantenimiento, acompañamiento obligatorio con la caja de herramientas |
 | 6 | Prefiere no usar la cámara | no usada → QR | Regular → Piscina, indicación |
-| 7 | QR vencido | desconocida → QR | Rechazado |
-| 8 | QR revocado | desconocida → QR | Rechazado |
+| 7 | QR vencido | desconocida → QR | No pasa: explica el problema y va a recepción |
+| 8 | QR revocado | desconocida → QR | No pasa: explica el problema y va a recepción |
 | 9 | Se parece a otra persona | identidad candidata equivocada + QR | Pendiente → recepción: invitada → Piscina |
 | 10 | Servicio caído | sin verificar | Pendiente → recepción: regular → Restaurante (ruta alterna) |
 | 11 | Cara entre umbrales | ambigua | Pendiente → recepción: regular → Canchas |
-| 12 | Personal fuera de turno | identidad candidata | Rechazado |
-| 13 | Persona no registrada | desconocida | Rechazado (no se asigna a nadie) |
+| 12 | Personal fuera de turno | identidad candidata | No pasa (fuera de horario) |
+| 13 | Persona no registrada | desconocida | No pasa: recepción (no se asigna a nadie) |
 | 14 | Foto movida | captura no válida → QR | Regular → Gimnasio, mapa |
 | 15 | Dos candidatos casi iguales | ambigua → QR | Regular → Restaurante, indicación |
-| 16 | Membresía vencida | identidad candidata | Rechazado: acreditación vencida |
+| 16 | Membresía vencida | identidad candidata | No pasa: membresía vencida, recepción la renueva |
+| 17 | Invitada cuyo anfitrión no confirma | QR | Invitado → espera en el lobby (aviso sin respuesta) |
 
 `python main.py --validar` escribe [`docs/validacion.md`](../docs/validacion.md): esperado frente a
-observado por caso, la matriz de categorías (incluye pendiente de revisión) y, **aparte**, las
-métricas del reconocimiento sobre las 28 fotos de prueba.
+observado por caso, la matriz de categorías (incluye pendiente de revisión), las **métricas de la
+propuesta** (tiempo de interacción, avisos emitidos y aceptados, casos con apoyo humano) y, **aparte**,
+las métricas del reconocimiento sobre las 28 fotos de prueba.
 
 ## Dataset y reconocimiento simulado
 
@@ -166,8 +214,9 @@ los casos.
 
    La ventana de la cámara muestra en vivo a quién se parece la cara (verde: reconocida; naranja:
    dudosa, desconocida o imagen que no sirve). **Espacio** (en cualquiera de las dos ventanas):
-   llega la persona que está frente a la cámara. **1 / 2 / 3**: la persona elige indicación,
-   mapa o acompañamiento.
+   llega la persona que está frente a la cámara: entra por la puerta del club (la vista inicial es
+   la suya, Visitante 1) y el X2 deja de patrullar para recibirla. **1 / 2 / 3**: la persona elige
+   indicación, mapa o acompañamiento. **N**: el anfitrión o responsable no responde el aviso.
 
    La identificación va por pasos de hasta 10 s de tiempo real (sin contar lo que dice el X2); al
    cambiar de paso se cancela el intento anterior, y en cuanto la credencial queda verificada se
@@ -200,7 +249,9 @@ los casos.
    nombre de la app.
 
 Los invitados y externos registrados entran con una invitación u orden de trabajo vigente que se
-crea al iniciar. Los umbrales de SFace (aceptar hasta 0.60 de distancia, ambigua hasta 0.70) están
+crea al iniciar. El trato y el punto de encuentro del equipo están en `dataset/caras/personas.json`
+(`trato`, `punto_encuentro`), con los mismos valores que en Supabase; cada VIP tiene una reserva en
+la Sala VIP y cada persona del personal, sus tareas (`datos_falsos.agenda`). Los umbrales de SFace (aceptar hasta 0.60 de distancia, ambigua hasta 0.70) están
 en `recepcion.UMBRALES` y hay que ajustarlos con fotos de prueba reales.
 
 ## Cómo habla el X2: ánimo y agente (sin API key)
@@ -212,14 +263,15 @@ dónde va lo sigue decidiendo `registrar_llegada`, con reglas fijas que se puede
   alineada que usa SFace y da un tono (contento, neutral, tenso o triste). Por debajo de 60 % de
   confianza queda neutral. Es una pista débil (la expresión no es el ánimo), corre en el computador,
   no se guarda y el robot no la menciona. La ventana de la cámara la muestra en vivo.
-- **Reglas locales (siempre):** saludo según la hora; con tono tenso o triste, el X2 habla con más
+- **Reglas locales (siempre):** saludo según la hora, con el trato que pidió la persona y lo que
+  sigue según su perfil; con tono tenso o triste, el X2 habla con más
   calma, sugiere el acompañamiento del D1 y, si la confianza pasa de 80 %, avisa a recepción; con
   tono contento sugiere solo la indicación; un regular nuevo recibe la oferta del recorrido. La
   sugerencia aparece al elegir con 1/2/3, pero la persona decide.
 - **Ollama (opcional):** un LLM que corre en el computador, sin clave ni internet, reescribe el
   mensaje de las reglas para que suene más natural. Si Ollama no está, tarda más de 4 s, todavía
   está cargando el modelo en la GPU (unos 20 s al arrancar) o la respuesta pierde un nombre o
-  inventa una pregunta, el X2 usa el mensaje de las reglas. Con una RTX 3060, `qwen2.5:3b`
+  inventa una pregunta, el X2 usa el mensaje de las reglas. Ollama también recibe el trato. Con una RTX 3060, `qwen2.5:3b`
   responde en unos 2.5 s, pero a veces escribe mal ("acompanie") o agrega frases raras: para la
   demo frente al jurado, las reglas son lo más confiable.
 
@@ -232,8 +284,8 @@ dónde va lo sigue decidiendo `registrar_llegada`, con reglas fijas que se puede
 ## Robots por separado
 
 El X2 y el D1 son programas aparte con la misma interfaz (`robots/interfaz.py`): `main.py` es el
-coordinador y solo les da órdenes ("mira al visitante", "captura", "señala el mapa", "guía por
-estos puntos"). Hoy corren sus versiones simuladas (`robots/x2_sim.py`, `robots/d1_sim.py`); para
+coordinador y solo les da órdenes ("patrulla el lobby", "vuelve a tu puesto", "captura", "señala
+el mapa", "agáchate y carga la caja", "guía por estos puntos"). Hoy corren sus versiones simuladas (`robots/x2_sim.py`, `robots/d1_sim.py`); para
 los robots reales se agregan `x2_aimdk.py` (ROS 2 / AimDK) y `d1_sdk.py` (SDK del D1) con los mismos
 métodos, sin tocar el coordinador.
 
@@ -247,17 +299,23 @@ métodos, sin tocar el coordinador.
 - `agente.py`: cómo habla el X2 según la persona y su ánimo (reglas locales + Ollama opcional).
 - `dataset.py`: fotos de registro y de prueba, y la huella simulada.
 - `recepcion.py`: reconocimiento por umbrales y la misma lógica de `registrar_llegada` /
-  `corregir_evento` de Supabase; elección del nivel de ayuda.
-- `datos_falsos.py`: personas, visitas, credenciales y fotografías de prueba, y los 16 casos con su
-  resultado esperado.
+  `corregir_evento` / `contexto_llegada` de Supabase, con el aviso al anfitrión; elección del nivel de
+  ayuda.
+- `datos_falsos.py`: personas (con su trato), visitas (con su punto de encuentro), credenciales,
+  fotografías, reservas, actividades, tareas y novedades de prueba, y los 17 casos con su resultado
+  esperado.
 - `semilla_supabase.py`: genera `supabase/seed_demo.sql` con los mismos datos.
 - `club.py`: plano inventado del club: zonas, grafo de pasillos con permisos por categoría y rutas.
-- `escena.py`: arma el modelo de MuJoCo.
-- `animacion.py`: movimientos por cinemática (sin física ni control de caminata): saludo y señalar
-  del X2, trote del D1, personas caminando.
+- `escena.py`: arma el modelo de MuJoCo: habitaciones, muebles, robots, personas y sus cámaras.
+- `animacion.py`: movimientos por cinemática (sin física ni control de caminata): caminata, saludo y
+  señalar del X2; trote, postura agachada y carga del D1; geocerca; personas caminando.
+- `marcha_x2.py`: caminata del X2 por cinemática inversa (la usan la simulación y el video).
 
 ## Pendiente
 
 - Reconocimiento real con las fotos del equipo (3 de registro y 2 de prueba por persona).
-- Llamar a `registrar_llegada` de Supabase desde la simulación (`fuente = 'simulacion'`).
+- Llamar a `registrar_llegada` y `contexto_llegada` de Supabase desde la simulación
+  (`fuente = 'simulacion'`), para que los avisos lleguen a la app real.
+- Conectar las pantallas de reservas y tareas de la app a las tablas nuevas (hoy muestran datos
+  simulados).
 - Versión para Meta Quest 3, si hay tiempo.

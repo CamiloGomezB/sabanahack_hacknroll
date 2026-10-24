@@ -17,22 +17,10 @@ import numpy as np
 from PIL import Image
 
 from escena import X2_MODELO_DEFECTO
+from marcha_x2 import PERIODO, VELOCIDAD, pose_marcha
 
 AQUI = Path(__file__).resolve().parent
 TEXTURA_MADERA = AQUI / "texturas" / "madera_laminada.png"
-
-# Medidas de la pierna del X2 (de X2-Ultra.xml v1.4.0).
-MUSLO = 0.13685 + 0.1831     # cadera -> rodilla
-CANILLA = 0.282              # rodilla -> tobillo
-TOBILLO_SUELO = 0.078        # alto del tobillo con el pie apoyado
-TOBILLO_ATRAS = 0.021        # el tobillo queda 2 cm detrás de la cadera con la pierna recta
-CADERA_Y = 0.07135 + 0.0657  # separación lateral de cada cadera
-
-ALTURA_PELVIS = 0.66         # rodillas un poco dobladas, como camina un humanoide
-PERIODO = 0.9                # segundos por ciclo (dos pasos)
-PASO = 0.28                  # metros por paso
-LEVANTE = 0.07               # alto máximo del pie en el aire
-VELOCIDAD = PASO / (PERIODO / 2)
 
 
 def generar_madera(ruta: Path, lado: int = 2048, tablas: int = 12, semilla: int = 7) -> None:
@@ -124,16 +112,6 @@ def construir() -> mujoco.MjModel:
     return spec.compile()
 
 
-def ik_pierna(dx: float, dz: float) -> tuple[float, float, float]:
-    """Cadera, rodilla y tobillo (pitch) para llevar el tobillo a (dx, dz) desde la cadera,
-    con el pie paralelo al piso. Pitch positivo lleva la pierna hacia atrás."""
-    r = min(math.hypot(dx, dz), MUSLO + CANILLA - 1e-4)
-    rodilla = math.pi - math.acos((MUSLO ** 2 + CANILLA ** 2 - r ** 2) / (2 * MUSLO * CANILLA))
-    alfa = math.acos((MUSLO ** 2 + r ** 2 - CANILLA ** 2) / (2 * MUSLO * r))
-    cadera = -(math.atan2(dx, -dz) + alfa)
-    return cadera, rodilla, -(cadera + rodilla)
-
-
 class Caminata:
     def __init__(self, model: mujoco.MjModel, data: mujoco.MjData):
         self.m, self.d = model, data
@@ -147,46 +125,15 @@ class Caminata:
         rampa = min(1.0, max(0.0, (t - 0.5) / 1.5))
         rampa = rampa * rampa * (3 - 2 * rampa)
         v = VELOCIDAD * rampa
-        paso = PASO * rampa
         self.x += v * dt
         fase = (t / PERIODO) % 1.0
 
-        y_sway = 0.025 * math.sin(2 * math.pi * fase) * rampa
-        z = ALTURA_PELVIS + 0.012 * math.cos(4 * math.pi * fase) * rampa
+        juntas, y_sway, z, giro = pose_marcha(fase, rampa)
         a = self.m.joint("x2_floating_base_joint").qposadr[0]
         self.d.qpos[a:a + 3] = [self.x, y_sway, z]
-        giro = 0.03 * math.sin(2 * math.pi * fase) * rampa  # leve giro de cadera
         self.d.qpos[a + 3:a + 7] = [math.cos(giro / 2), 0, 0, math.sin(giro / 2)]
-
-        for lado, desfase in (("left", 0.0), ("right", 0.5)):
-            f = (fase + desfase) % 1.0
-            if f < 0.5:   # apoyo: el pie queda quieto en el piso mientras el cuerpo avanza
-                s = f / 0.5
-                dx = paso / 2 - paso * s
-                alto = 0.0
-            else:         # balanceo: el pie pasa adelante por el aire
-                s = (f - 0.5) / 0.5
-                suave = s * s * (3 - 2 * s)
-                dx = -paso / 2 + paso * suave
-                alto = LEVANTE * math.sin(math.pi * s) * rampa
-            dz = -(z - TOBILLO_SUELO - alto)
-            cadera, rodilla, tobillo = ik_pierna(dx + TOBILLO_ATRAS, dz)
-            self.q(f"{lado}_hip_pitch_joint", cadera)
-            self.q(f"{lado}_knee_joint", rodilla)
-            self.q(f"{lado}_ankle_pitch_joint", tobillo)
-            # Compensa el balanceo lateral para que los pies sigan en su carril.
-            self.q(f"{lado}_hip_roll_joint", -y_sway / (z - TOBILLO_SUELO))
-            self.q(f"{lado}_ankle_roll_joint", y_sway / (z - TOBILLO_SUELO))
-            self.q(f"{lado}_hip_yaw_joint", -giro)
-
-            # Brazos en contrafase con la pierna del mismo lado.
-            brazo = 0.35 * math.sin(2 * math.pi * (f - 0.25)) * rampa
-            signo = 1 if lado == "left" else -1
-            self.q(f"{lado}_shoulder_pitch_joint", -brazo)
-            self.q(f"{lado}_shoulder_roll_joint", signo * 0.12)
-            self.q(f"{lado}_elbow_joint", -0.45 - 0.15 * max(0.0, -brazo))
-        self.q("waist_yaw_joint", giro * 0.8)
-        self.q("waist_pitch_joint", 0.07 * rampa)  # torso levemente hacia adelante
+        for junta, valor in juntas.items():
+            self.q(junta, valor)
         mujoco.mj_forward(self.m, self.d)
         return np.array([self.x, y_sway * 0.3, 0.0])
 

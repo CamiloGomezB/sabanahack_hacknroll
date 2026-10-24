@@ -1,5 +1,6 @@
-"""Datos de mentira con la misma forma de las tablas de Supabase: personas, fotografías,
-credenciales y visitas. Los casos de validación están en CASOS, cada uno con su resultado esperado.
+"""Datos de mentira con la misma forma de las tablas de Supabase: personas (con su trato),
+fotografías, credenciales, visitas (con su punto de encuentro), reservas, tareas del personal,
+novedades y avisos. Los casos de validación están en CASOS, cada uno con su resultado esperado.
 
 Los identificadores son UUID fijos (uuid5), los mismos que usa la semilla de Supabase
 (`semilla_supabase.py`), para que la simulación y la base hablen de las mismas personas y visitas.
@@ -37,18 +38,60 @@ def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def _persona(clave, nombre, vinculo, inicio=None, fin=None, tour=False, hasta=None):
+def _persona(clave, nombre, vinculo, inicio=None, fin=None, tour=False, hasta=None, trato=None):
     return dict(id=pid(clave), clave=clave, nombre_demo=nombre, vinculo=vinculo, estado="activa",
                 requiere_tour=tour, horario_inicio=inicio, horario_fin=fin, vinculo_hasta=hasta,
-                consentimiento_biometrico=clave in dataset.CON_BIOMETRIA)
+                consentimiento_biometrico=clave in dataset.CON_BIOMETRIA, trato=trato)
+
+
+def _a_la_hora(ahora: datetime, hh: int, mm: int = 0) -> datetime:
+    return ahora.replace(hour=hh, minute=mm, second=0, microsecond=0)
+
+
+def agenda(datos: dict, ahora: datetime) -> None:
+    """Lo que consulta contexto_llegada: reserva de hoy de cada VIP, tareas del día de cada persona
+    del personal, actividades del club y novedades. Sirve para los datos de mentira y para el
+    equipo real; no pisa lo que ya exista."""
+    datos.setdefault("reservas", [])
+    datos.setdefault("tareas", [])
+    datos.setdefault("avisos", [])
+    con_reserva = {r["persona_id"] for r in datos["reservas"]}
+    con_tareas = {t["persona_id"] for t in datos["tareas"]}
+    inicio = ahora.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+    for p in datos["personas"].values():
+        if p["vinculo"] == "vip" and p["id"] not in con_reserva:
+            datos["reservas"].append(dict(persona_id=p["id"], espacio="sala_vip", inicio=inicio,
+                                          fin=inicio + timedelta(hours=2), estado="confirmada"))
+        if p["vinculo"] == "personal" and p["id"] not in con_tareas:
+            base = p["horario_inicio"].hour if p["horario_inicio"] else ahora.hour
+            datos["tareas"] += [
+                dict(persona_id=p["id"], titulo="revisar el inventario de toallas", area="piscina",
+                     hora=time(min(base + 2, 23)), estado="pendiente"),
+                dict(persona_id=p["id"], titulo="recibir al técnico del aire acondicionado",
+                     area="mantenimiento", hora=time(min(base + 4, 23)), estado="pendiente"),
+            ]
+    datos.setdefault("actividades", [
+        dict(zona="gimnasio", titulo="clase de spinning", hora=_a_la_hora(ahora, 11)),
+        dict(zona="piscina", titulo="clase de natación", hora=_a_la_hora(ahora, 12)),
+        dict(zona="canchas", titulo="torneo de tenis", hora=_a_la_hora(ahora, 15)),
+        dict(zona="gimnasio", titulo="clase de yoga", hora=_a_la_hora(ahora, 18)),
+    ])
+    datos.setdefault("novedades", [
+        dict(titulo="la piscina cierra de 14:00 a 16:00 por limpieza", area="piscina",
+             tipo="operativa"),
+        dict(titulo="hay un técnico externo en Mantenimiento", area="mantenimiento",
+             tipo="acceso"),
+    ])
 
 
 def cargar(ahora: datetime) -> dict:
     socio = dict(inicio=time(6), fin=time(21))
     personas = [
-        _persona("valentina", "Valentina Rojas", "vip", **socio),
-        _persona("andres", "Andrés Gómez", "regular", tour=True, **socio),
-        _persona("carlos", "Carlos Pérez", "personal", time(6), time(14)),
+        _persona("valentina", "Valentina Rojas", "vip", trato="Háblame de usted, por favor.",
+                 **socio),
+        _persona("andres", "Andrés Gómez", "regular", tour=True, trato="Trato cercano.", **socio),
+        _persona("carlos", "Carlos Pérez", "personal", time(6), time(14),
+                 trato="Directo y breve, voy con prisa."),
         _persona("laura", "Laura Martínez", "regular", **socio),   # no dio consentimiento
         _persona("diana", "Diana López", "personal", time(14), time(22)),
         _persona("tomas", "Tomás Herrera", "regular", **socio),
@@ -61,15 +104,15 @@ def cargar(ahora: datetime) -> dict:
         # Invitados y externos: sin cuenta, sin biometría, existen mientras dure su visita.
         *[_persona(c, n, "ninguno") for c, n in [
             ("sofia", "Sofía Herrera"), ("jorge", "Jorge Ramírez"), ("pedro", "Pedro Castillo"),
-            ("ana", "Ana Torres"), ("marta", "Marta Ruiz")]],
+            ("ana", "Ana Torres"), ("marta", "Marta Ruiz"), ("elena", "Elena Prieto")]],
     ]
     h = timedelta(hours=1)
 
     def visita(clave, responsable, categoria, destino, inicio, fin, estado="programada",
-               empresa=None, motivo=None):
+               empresa=None, motivo=None, punto_encuentro=None):
         return dict(id=vid(clave), clave=clave, persona_id=pid(clave), responsable_id=pid(responsable),
                     categoria=categoria, destino=destino, empresa=empresa, motivo=motivo,
-                    inicio=inicio, fin=fin, estado=estado)
+                    inicio=inicio, fin=fin, estado=estado, punto_encuentro=punto_encuentro)
 
     visitas = [
         visita("sofia", "valentina", "invitado", "restaurante", ahora - h, ahora + 3 * h,
@@ -79,6 +122,8 @@ def cargar(ahora: datetime) -> dict:
         visita("pedro", "laura", "invitado", "piscina", ahora - 27 * h, ahora - 24 * h),
         visita("ana", "andres", "invitado", "piscina", ahora, ahora + 2 * h, estado="cancelada"),
         visita("marta", "laura", "invitado", "piscina", ahora - h, ahora + 2 * h),
+        visita("elena", "tomas", "invitado", "restaurante", ahora - h, ahora + 3 * h,
+               motivo="Reunión", punto_encuentro="sala_vip"),
     ]
     personales = ["valentina", "andres", "carlos", "laura", "diana", "tomas", "mateo", "lucia",
                   "julian", "ricardo"]
@@ -103,8 +148,10 @@ def cargar(ahora: datetime) -> dict:
              modelo=dataset.MODELO if f.uso == "registro" else None)
         for f in dataset.FOTOS.values()
     ]
-    return dict(personas={p["id"]: p for p in personas}, visitas={v["id"]: v for v in visitas},
-                credenciales=credenciales, fotografias=fotografias, eventos=[])
+    datos = dict(personas={p["id"]: p for p in personas}, visitas={v["id"]: v for v in visitas},
+                 credenciales=credenciales, fotografias=fotografias, eventos=[])
+    agenda(datos, ahora)
+    return datos
 
 
 # --- Caras reales del equipo ------------------------------------------------------------------
@@ -128,20 +175,21 @@ def agregar_caras_reales(datos: dict, ahora: datetime) -> list[dict]:
     for r in registro["personas"]:
         clave, rol = r["clave"], r["rol"]
         if rol in ("vip", "regular"):
-            p = _persona(clave, r["nombre"], rol, **socio)
+            p = _persona(clave, r["nombre"], rol, trato=r.get("trato"), **socio)
         elif rol == "personal":
             # Para la demo, el turno que cubre la hora de la prueba.
             turno = (time(6), time(14)) if ahora.hour < 14 else (time(14), time(22))
-            p = _persona(clave, r["nombre"], "personal", *turno)
+            p = _persona(clave, r["nombre"], "personal", *turno, trato=r.get("trato"))
         else:
-            p = _persona(clave, r["nombre"], "ninguno")
+            p = _persona(clave, r["nombre"], "ninguno", trato=r.get("trato"))
             h = timedelta(hours=1)
             v = dict(id=vid(clave), clave=clave, persona_id=pid(clave), categoria=rol,
                      inicio=ahora - h, fin=ahora + 4 * h, estado="programada",
                      responsable_id=pid(anfitrion if rol == "invitado" else responsable),
                      destino="restaurante" if rol == "invitado" else "mantenimiento",
                      empresa=None if rol == "invitado" else "Climatizar SAS",
-                     motivo="Almuerzo" if rol == "invitado" else "Orden de trabajo OT-1043")
+                     motivo="Almuerzo" if rol == "invitado" else "Orden de trabajo OT-1043",
+                     punto_encuentro=r.get("punto_encuentro"))
             datos["visitas"][v["id"]] = v
         p["consentimiento_biometrico"] = True
         datos["personas"][p["id"]] = p
@@ -180,7 +228,8 @@ def agregar_qr_reales(datos: dict, ahora: datetime) -> list[dict]:
         datos["visitas"][vid(i["clave"])] = dict(
             id=vid(i["clave"]), clave=i["clave"], persona_id=p["id"], categoria="invitado",
             responsable_id=pid(i["anfitrion"]), destino=i["destino"], empresa=None,
-            motivo="Invitación", inicio=ahora - h, fin=ahora + 4 * h, estado="programada")
+            motivo="Invitación", inicio=ahora - h, fin=ahora + 4 * h, estado="programada",
+            punto_encuentro=i.get("punto_encuentro"))
         invitados.append(p)
     for c in qr["credenciales"]:
         if pid(c["clave"]) not in datos["personas"]:
@@ -202,6 +251,8 @@ def agregar_qr_reales(datos: dict, ahora: datetime) -> list[dict]:
 # qr: token que muestra si el robot se lo pide. servicio: False = la verificación no responde.
 # ayuda: lo que elige la persona. destino: a dónde va (los miembros lo eligen al llegar).
 # correccion: lo que decide recepción si el caso queda pendiente.
+# equipaje: el VIP trae maleta y el D1 se la lleva. anfitrion_responde: False = el anfitrión no
+#   confirma el aviso de la app y el invitado espera en el lobby.
 # esperado: lo que debe resolver el robot (categoría, "pendiente_revision" o "rechazado"), y
 #   categoría final, destino y nivel de ayuda.
 def _caso(n, titulo, persona, etiqueta, foto, qr=None, **resto):
@@ -209,8 +260,8 @@ def _caso(n, titulo, persona, etiqueta, foto, qr=None, **resto):
 
 
 CASOS = [
-    _caso(1, "Miembro VIP reconocida por cara", "valentina", "Valentina Rojas", "valentina_p1",
-          ayuda="indicacion", destino="sala_vip",
+    _caso(1, "Miembro VIP con reserva y maleta (el D1 la lleva)", "valentina", "Valentina Rojas",
+          "valentina_p1", ayuda="indicacion", destino="sala_vip", equipaje=True,
           esperado=dict(robot="vip", destino="sala_vip", ayuda="indicacion")),
     _caso(2, "Miembro regular, primera visita (recorrido)", "andres", "Andrés Gómez", "andres_p1",
           ayuda="acompanamiento", destino="gimnasio",
@@ -260,4 +311,7 @@ CASOS = [
           esperado=dict(robot="regular", destino="restaurante", ayuda="indicacion")),
     _caso(16, "Reconocido, pero con la membresía vencida", "ricardo", "Ricardo Silva",
           "ricardo_p1", esperado=dict(robot="rechazado")),
+    _caso(17, "Invitada: su anfitrión no confirma el aviso", "elena", "Elena Prieto", None,
+          "qr-elena", ayuda="indicacion", anfitrion_responde=False,
+          esperado=dict(robot="invitado", destino="lobby", ayuda=None)),
 ]

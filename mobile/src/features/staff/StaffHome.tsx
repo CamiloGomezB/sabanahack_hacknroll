@@ -14,6 +14,7 @@ import { canRegisterExternal } from '@/features/auth/permissions';
 import type { SessionState } from '@/features/auth/SessionProvider';
 import { MemberQrSection } from '@/features/memberships/MemberQrSection';
 import { membershipStatus } from '@/features/memberships/status';
+import { ArrivalNotices } from '@/features/notices/ArrivalNotices';
 import { useNow } from '@/hooks/useNow';
 import { memberCode } from '@/utils/format';
 
@@ -48,6 +49,8 @@ export function StaffHome({ session }: { session: StaffSession }) {
       <Txt variant="caption" align="center">
         Código {memberCode('personal', persona.id)}
       </Txt>
+
+      {session.status === 'real' ? <ArrivalNotices personaId={persona.id} /> : null}
 
       <SectionTitle>Jornada de hoy</SectionTitle>
       <GlassCard>

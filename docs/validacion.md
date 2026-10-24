@@ -6,45 +6,54 @@ Generado con `python main.py --validar` (hora simulada 10:00).
 
 ## Casos: esperado frente a observado
 
-| # | Caso | Reconocimiento | Robot esperado | Robot observado | Recepción | Destino | Ayuda | Ruta | Llegada | OK |
-|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | Miembro VIP reconocida por cara | reconocida | Miembro VIP | Miembro VIP | — | sala_vip (esp. sala_vip) | indicacion (esp. indicacion) | normal | sí | ✅ |
-| 2 | Miembro regular, primera visita (recorrido) | reconocida | Miembro regular | Miembro regular | — | gimnasio (esp. gimnasio) | acompanamiento (esp. acompanamiento) | normal | sí | ✅ |
-| 3 | Personal en su turno | reconocida | Personal del club | Personal del club | — | oficinas (esp. oficinas) | mapa (esp. mapa) | normal | sí | ✅ |
-| 4 | Invitada: cara desconocida, QR vigente | desconocida | Invitado | Invitado | — | restaurante (esp. restaurante) | acompanamiento (esp. acompanamiento) | normal | sí | ✅ |
-| 5 | Trabajador externo (acompañamiento obligatorio) | desconocida | Trabajador externo | Trabajador externo | — | mantenimiento (esp. mantenimiento) | acompanamiento (esp. acompanamiento) | normal | sí | ✅ |
-| 6 | Prefiere no usar la cámara: solo QR | no usada | Miembro regular | Miembro regular | — | piscina (esp. piscina) | indicacion (esp. indicacion) | normal | sí | ✅ |
-| 7 | QR vencido | desconocida | Rechazado | Rechazado | — | — (esp. —) | — (esp. —) | — | — | ✅ |
-| 8 | QR revocado por el anfitrión | desconocida | Rechazado | Rechazado | — | — (esp. —) | — (esp. —) | — | — | ✅ |
-| 9 | Contradicción: la cara parece otra persona que la del QR | reconocida | Pendiente de revisión | Pendiente de revisión | Verificó documento: es Marta Ruiz, invitada de Laura | piscina (esp. piscina) | mapa (esp. mapa) | normal | sí | ✅ |
-| 10 | Servicio de verificación no disponible | sin verificar | Pendiente de revisión | Pendiente de revisión | Sin conexión: verificó el carné de miembro | restaurante (esp. restaurante) | indicacion (esp. indicacion) | alterna | sí | ✅ |
-| 11 | Cara ambigua (entre umbrales), sin QR | ambigua | Pendiente de revisión | Pendiente de revisión | Corte de pelo nuevo: verificó documento | canchas (esp. canchas) | mapa (esp. mapa) | normal | sí | ✅ |
-| 12 | Personal fuera de su turno | reconocida | Rechazado | Rechazado | — | — (esp. —) | — (esp. —) | — | — | ✅ |
-| 13 | Cara desconocida sin credencial | desconocida | Rechazado | Rechazado | — | — (esp. —) | — (esp. —) | — | — | ✅ |
-| 14 | Captura no válida: el robot pide el QR | captura no valida | Miembro regular | Miembro regular | — | gimnasio (esp. gimnasio) | mapa (esp. mapa) | normal | sí | ✅ |
-| 15 | Dos candidatos muy parecidos: el robot pide el QR | ambigua | Miembro regular | Miembro regular | — | restaurante (esp. restaurante) | indicacion (esp. indicacion) | alterna | sí | ✅ |
-| 16 | Reconocido, pero con la membresía vencida | reconocida | Rechazado | Rechazado | — | — (esp. —) | — (esp. —) | — | — | ✅ |
+| # | Caso | Reconocimiento | Robot esperado | Robot observado | Recepción | Destino | Ayuda | Ruta | Aviso | Tiempo (s) | Llegada | OK |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | Miembro VIP con reserva y maleta (el D1 la lleva) | reconocida | Miembro VIP | Miembro VIP | — | sala_vip (esp. sala_vip) | indicacion (esp. indicacion) | normal | — | 8.6 | sí | ✅ |
+| 2 | Miembro regular, primera visita (recorrido) | reconocida | Miembro regular | Miembro regular | — | gimnasio (esp. gimnasio) | acompanamiento (esp. acompanamiento) | normal | — | 4.4 | sí | ✅ |
+| 3 | Personal en su turno | reconocida | Personal del club | Personal del club | — | oficinas (esp. oficinas) | mapa (esp. mapa) | normal | — | 6.6 | sí | ✅ |
+| 4 | Invitada: cara desconocida, QR vigente | desconocida | Invitado | Invitado | — | restaurante (esp. restaurante) | acompanamiento (esp. acompanamiento) | normal | aceptado | 13.0 | sí | ✅ |
+| 5 | Trabajador externo (acompañamiento obligatorio) | desconocida | Trabajador externo | Trabajador externo | — | mantenimiento (esp. mantenimiento) | acompanamiento (esp. acompanamiento) | normal | aceptado | 15.1 | sí | ✅ |
+| 6 | Prefiere no usar la cámara: solo QR | no usada | Miembro regular | Miembro regular | — | piscina (esp. piscina) | indicacion (esp. indicacion) | normal | — | 8.0 | sí | ✅ |
+| 7 | QR vencido | desconocida | No pasa / recepción | No pasa / recepción | — | — (esp. —) | — (esp. —) | — | — | 6.0 | — | ✅ |
+| 8 | QR revocado por el anfitrión | desconocida | No pasa / recepción | No pasa / recepción | — | — (esp. —) | — (esp. —) | — | — | 6.0 | — | ✅ |
+| 9 | Contradicción: la cara parece otra persona que la del QR | reconocida | Pendiente de revisión | Pendiente de revisión | Verificó documento: es Marta Ruiz, invitada de Laura | piscina (esp. piscina) | mapa (esp. mapa) | normal | aceptado | 20.0 | sí | ✅ |
+| 10 | Servicio de verificación no disponible | sin verificar | Pendiente de revisión | Pendiente de revisión | Sin conexión: verificó el carné de miembro | restaurante (esp. restaurante) | indicacion (esp. indicacion) | alterna | — | 13.5 | sí | ✅ |
+| 11 | Cara ambigua (entre umbrales), sin QR | ambigua | Pendiente de revisión | Pendiente de revisión | Corte de pelo nuevo: verificó documento | canchas (esp. canchas) | mapa (esp. mapa) | normal | — | 14.5 | sí | ✅ |
+| 12 | Personal fuera de su turno | reconocida | No pasa / recepción | No pasa / recepción | — | — (esp. —) | — (esp. —) | — | — | 4.0 | — | ✅ |
+| 13 | Cara desconocida sin credencial | desconocida | No pasa / recepción | No pasa / recepción | — | — (esp. —) | — (esp. —) | — | — | 3.0 | — | ✅ |
+| 14 | Captura no válida: el robot pide el QR | captura no valida | Miembro regular | Miembro regular | — | gimnasio (esp. gimnasio) | mapa (esp. mapa) | normal | — | 9.5 | sí | ✅ |
+| 15 | Dos candidatos muy parecidos: el robot pide el QR | ambigua | Miembro regular | Miembro regular | — | restaurante (esp. restaurante) | indicacion (esp. indicacion) | alterna | — | 8.5 | sí | ✅ |
+| 16 | Reconocido, pero con la membresía vencida | reconocida | No pasa / recepción | No pasa / recepción | — | — (esp. —) | — (esp. —) | — | — | 4.0 | — | ✅ |
+| 17 | Invitada: su anfitrión no confirma el aviso | no usada | Invitado | Invitado | — | lobby (esp. lobby) | — (esp. —) | — | sin respuesta | 14.7 | sí | ✅ |
 
-**16 de 16 casos dieron el resultado esperado.**
+**17 de 17 casos dieron el resultado esperado.**
 
 ## Clasificación del robot: categoría esperada (filas) frente a obtenida (columnas)
 
-| | Miembro VIP | Miembro regular | Personal del club | Invitado | Trabajador externo | Pendiente de revisión | Rechazado |
+| | Miembro VIP | Miembro regular | Personal del club | Invitado | Trabajador externo | Pendiente de revisión | No pasa / recepción |
 |---|---|---|---|---|---|---|---|
 | **Miembro VIP** | 1 | · | · | · | · | · | · |
 | **Miembro regular** | · | 4 | · | · | · | · | · |
 | **Personal del club** | · | · | 1 | · | · | · | · |
-| **Invitado** | · | · | · | 1 | · | · | · |
+| **Invitado** | · | · | · | 2 | · | · | · |
 | **Trabajador externo** | · | · | · | · | 1 | · | · |
 | **Pendiente de revisión** | · | · | · | · | · | 3 | · |
-| **Rechazado** | · | · | · | · | · | · | 5 |
+| **No pasa / recepción** | · | · | · | · | · | · | 5 |
 
 ## Orientación (aparte de la clasificación)
 
-- Destino correcto: 11 de 11
-- Nivel de ayuda correcto: 11 de 11
-- Llegada confirmada: 11 de 11
+- Destino correcto: 12 de 12
+- Nivel de ayuda correcto: 12 de 12
+- Llegada confirmada: 12 de 12
 - Casos que pasaron por recepción: 3 (todos con motivo registrado)
+
+## Métricas de la propuesta
+
+Tiempo de interacción: desde que la persona queda frente al X2 hasta que recibe la orientación (o pasa a recepción). Es tiempo simulado: los pasos con cámara real duran hasta 10 s cada uno y no están en esta corrida.
+
+- Tiempo de interacción: promedio 9.4 s, máximo 20.0 s (17 casos)
+- Avisos al anfitrión o responsable: 4 emitidos, 3 aceptados, 1 sin respuesta (SIMULADO: en la app los marca la persona avisada)
+- Casos que necesitaron apoyo humano (recepción o espera del anfitrión): 7 de 17 (41 %)
 
 ## Reconocimiento facial (métrica aparte)
 

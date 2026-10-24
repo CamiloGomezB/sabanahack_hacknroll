@@ -37,6 +37,20 @@ class D1Simulado:
     def guiar(self, puntos):
         yield from self._recorrer(puntos, VELOCIDAD_GUIA)
 
+    def agacharse(self, segundos: float = 1.2):
+        yield from self.mundo.d1_agacharse(True, segundos)
+
+    def levantarse(self, segundos: float = 1.0):
+        yield from self.mundo.d1_agacharse(False, segundos)
+
+    def cargar(self, objeto: str | None) -> None:
+        """Pone (o quita, con None) la maleta o la caja de herramientas en el lomo."""
+        self.mundo.d1_carga = objeto
+
+    @property
+    def carga(self) -> str | None:
+        return self.mundo.d1_carga
+
     def descansar(self) -> None:
         self.mundo.d1_andando = False
         self.mundo.d1_yaw = math.pi / 2

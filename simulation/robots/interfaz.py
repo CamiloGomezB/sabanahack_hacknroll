@@ -40,6 +40,17 @@ class X2(Protocol):
 
     def esperar(self, segundos: float) -> Accion: ...
 
+    def ir_a(self, puntos: list[Punto]) -> Accion:
+        """Camina por el lobby (el X2 Ultra camina; en el robot real, con AimDK)."""
+
+    def volver_al_puesto(self) -> Accion:
+        """Vuelve junto al mapa y se gira hacia la entrada para recibir a quien llega."""
+
+    def patrullar(self) -> Accion:
+        """Recorre el lobby buscando a quién recibir hasta que se cancele (no termina solo)."""
+
+    def detener(self) -> None: ...
+
 
 class D1(Protocol):
     """Guía cuadrúpedo: recorre rutas de puntos (x, y) en metros sobre el plano del club."""
@@ -55,6 +66,14 @@ class D1(Protocol):
 
     def guiar(self, puntos: list[Punto]) -> Accion:
         """Recorre la ruta a paso de guía; la persona camina detrás."""
+
+    def agacharse(self, segundos: float) -> Accion:
+        """Baja el cuerpo para recibir o entregar la carga."""
+
+    def levantarse(self, segundos: float) -> Accion: ...
+
+    def cargar(self, objeto: str | None) -> None:
+        """Lleva "maleta" (VIP) o "caja" de herramientas (externo) en el lomo; None la entrega."""
 
     def descansar(self) -> None:
         """Se queda quieto en su base, mirando hacia el lobby."""

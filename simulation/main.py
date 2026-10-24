@@ -2,8 +2,9 @@
 
     python main.py                      # visor interactivo
     python main.py --hora 15:30         # otra hora simulada (cambia quién puede entrar)
-    python main.py --validar            # sin ventana: corre los 16 casos y escribe docs/validacion.md
+    python main.py --validar            # sin ventana: corre los casos y escribe docs/validacion.md
     python main.py --capturas salida/   # sin ventana: guarda imágenes de la demo
+    python main.py --capturas salida/ --vista visitante   # desde los ojos de quien entra
     python main.py --camara             # la cámara del computador es la del X2 (reconocimiento real)
 
 main.py es el coordinador de la recepción. El X2 y el D1 son programas aparte (robots/), que aquí
@@ -27,13 +28,13 @@ from agente import OLLAMA_MODELO, Agente
 from animacion import Mundo
 from camaras import QR_DEMO, CamaraDataset
 from caras import MODELO as MODELO_REAL
-from club import (BASE_D1, ENTRADA, POS_ANTE_RECEPCION, POS_VISITANTE, RECORRIDO_TOUR,
-                  SALIDA_VISITANTE, TRAMO_BLOQUEABLE, ZONAS, nodo_de_zona, nombre_destino, puntos,
-                  ruta, usa_tramo, zona_de_destino)
+from club import (BASE_D1, ENTRADA, FUERA, POS_ANTE_RECEPCION, POS_ESPERA, POS_VISITANTE,
+                  RECORRIDO_TOUR, SALIDA_VISITANTE, TRAMO_BLOQUEABLE, ZONAS, nodo_de_zona,
+                  nombre_destino, punto_llegada, puntos, ruta, usa_tramo, zona_de_destino)
 from datos_falsos import pid
 from escena import ascii, construir
-from recepcion import (AYUDAS, CATEGORIAS, MARGEN, MOTIVOS, UMBRAL, UMBRAL_DUDA, corregir,
-                       elegir_ayuda, reconocer, registrar_llegada)
+from recepcion import (AYUDAS, CATEGORIAS, MARGEN, MOTIVOS, UMBRAL, UMBRAL_DUDA, aviso_de,
+                       contexto_llegada, corregir, elegir_ayuda, reconocer, registrar_llegada)
 from robots.d1_sim import D1Simulado
 from robots.x2_sim import X2Simulado
 
@@ -122,6 +123,10 @@ TECLAS_AYUDA = {ord("1"): "indicacion", ord("2"): "mapa", ord("3"): "acompanamie
 # el X2. 1) cara → 2) primer QR → 3) segundo QR → recepción. Quien llega con invitación u orden
 # (tecla I, o mostrando el QR desde el principio) empieza en el paso 2: 20 s como máximo.
 ESPERA_PASO = 10.0
+# Aviso al anfitrión o responsable (SIMULADO: en la app real lo marca la persona). Segundos
+# simulados hasta que lo marca como recibido y aceptado, o hasta darlo por sin respuesta.
+AVISO_RECIBIDO, AVISO_ACEPTADO, ESPERA_AVISO = 1.5, 3.5, 8.0
+ESTADOS_AVISO = ["emitido", "recibido", "aceptado"]
 
 
 class Escenario:
@@ -145,6 +150,7 @@ class Escenario:
             self.datos = dict(personas={}, visitas={}, credenciales=[], fotografias=[], eventos=[])
             self.registradas = datos_falsos.agregar_caras_reales(self.datos, self.inicio)
             self.invitados = datos_falsos.agregar_qr_reales(self.datos, self.inicio)
+            datos_falsos.agenda(self.datos, self.inicio)
             webcam.identificar = self._quien
             self.llegadas = []
             figuras = [(f"Visitante {k + 1}", None) for k in range(self.PUESTOS_CAMARA)]
@@ -170,6 +176,11 @@ class Escenario:
         self.pedir_siguiente = False
         self.eleccion = None        # nivel de ayuda elegido con las teclas 1/2/3 (modo cámara)
         self.con_invitacion = False # tecla I: trae invitación u orden y empieza por el QR
+        self.anfitrion_no_responde = False   # tecla N (modo cámara): el aviso queda sin respuesta
+        self.patrulla = None        # el X2 recorre el lobby mientras no llega nadie
+        self.trato = None           # cómo hablarle a la persona que se está atendiendo
+        self._fig_actual = 0
+        self.vista = "visitante"    # cámara del visor (tecla C)
         self.espera = 1.0
         self.hud = {}
         self.recepcion = "sin casos pendientes"
@@ -177,6 +188,8 @@ class Escenario:
         for k in range(len(figuras)):
             self.mundo.personas[k]["xy"] = (np.array(self._puesto_fila(k), dtype=float)
                                             if webcam is None else np.array([-40.0, k]))
+        if webcam is not None:
+            self.mundo.personas[0]["xy"] = np.array(FUERA)   # Visitante 1 espera en la puerta
 
     def _puesto_fila(self, k: int) -> tuple[float, float]:
         return (ENTRADA[0] - 1.5 - (k - self.siguiente) * 0.9, 0.0)
@@ -186,6 +199,19 @@ class Escenario:
 
     def ahora(self) -> datetime:
         return self.inicio + timedelta(seconds=self.mundo.t)
+
+    @property
+    def figura_vista(self) -> int:
+        """Persona desde cuyos ojos se ve la escena: la que se atiende o la siguiente en entrar."""
+        if self.actual is not None:
+            return self._fig_actual
+        if self.webcam is not None:
+            return self._figura(len(self.llegadas))
+        return self._figura(min(self.siguiente, len(self.llegadas) - 1))
+
+    def _decir(self, texto: str) -> None:
+        """El X2 habla con el trato que pidió la persona (usted o tú)."""
+        self.x2.decir(voz.ajustar(texto, self.trato))
 
     @property
     def bloqueados(self) -> set[tuple[str, str]]:
@@ -261,10 +287,66 @@ class Escenario:
         self.hud["QR"] = "no se pudo leer"
         return None
 
-    def _hablar(self, r, animo):
+    def _contexto(self, r, caso) -> dict:
+        """contexto_llegada: trato, reserva, punto de encuentro, tareas y novedades."""
+        ctx = contexto_llegada(self.datos, r.persona_id, r.visita_id, self.ahora())
+        ctx["equipaje"] = bool(caso.get("equipaje"))
+        self.trato = voz.leer_trato(ctx["trato"])
+        if ctx["trato"]:
+            self.hud["Trato"] = ctx["trato"]
+        return ctx
+
+    def _recibir(self):
+        """El X2 deja de buscar gente, vuelve a su puesto y saluda a quien entra."""
+        self.hud["X2"] = "vuelve a su puesto para recibir"
+        yield from self.x2.volver_al_puesto()
+        self.hud["X2"] = "saluda a quien llega"
+        self.x2.decir("¡Hola! Te doy la bienvenida a N Club.")
+        yield from self.x2.saludar(1.8)
+        self.hud["X2"] = "atiende en su puesto"
+
+    def _esperar_aviso(self, r, caso, fila):
+        """App del anfitrión o responsable (SIMULADA): el aviso que creó registrar_llegada pasa de
+        emitido a recibido y aceptado, o se da por sin respuesta. Devuelve el estado final."""
+        aviso = aviso_de(self.datos, r.visita_id)
+        if aviso is None:
+            return None
+        responde = caso.get("anfitrion_responde", True) and not (
+            caso.get("camara") and self.anfitrion_no_responde)
+        pasos = [(AVISO_RECIBIDO, "recibido"), (AVISO_ACEPTADO, "aceptado")] if responde else []
+        inicio = self.mundo.t
+        while True:
+            t = self.mundo.t - inicio
+            for segundos, estado in pasos:
+                if t >= segundos and ESTADOS_AVISO.index(aviso["estado"]) < \
+                        ESTADOS_AVISO.index(estado):
+                    aviso.update(estado=estado, actualizado_en=self.ahora())
+            if not responde and t >= ESPERA_AVISO:
+                aviso.update(estado="sin_respuesta", actualizado_en=self.ahora())
+            self.hud["App"] = (f"[SIMULADO] app de {r.responsable}: {aviso['mensaje']} "
+                               f"({aviso['estado'].replace('_', ' ')})")
+            if aviso["estado"] in ("aceptado", "sin_respuesta"):
+                break
+            yield
+        fila["aviso"] = aviso["estado"]
+        return aviso["estado"]
+
+    def _recibir_carga(self, carga: str):
+        self.hud["D1"] = f"se agacha para recibir {'la maleta' if carga == 'maleta' else 'la caja de herramientas'}"
+        yield from self.d1.agacharse(1.2)
+        self.d1.cargar(carga)
+        yield from self.d1.levantarse(1.0)
+
+    def _entregar_carga(self):
+        self.hud["D1"] = "se agacha y entrega la carga"
+        yield from self.d1.agacharse(1.2)
+        self.d1.cargar(None)
+        yield from self.d1.levantarse(1.0)
+
+    def _hablar(self, r, animo, ctx=None):
         """El X2 dice el mensaje del agente. Con Ollama espera hasta ESPERA_OLLAMA segundos a la
         versión redactada; si no llega o no sirve, habla con la de las reglas."""
-        plan = self.agente.planear(r, animo, self.ahora())
+        plan = self.agente.planear(r, animo, self.ahora(), ctx)
         pedido = self.agente.redactar(plan, r, animo)
         if pedido is not None:
             self.hud["X2 dice"] = "(pensando…)"
@@ -286,24 +368,30 @@ class Escenario:
         self.llegadas.append(dict(n=n, titulo=f"Llegada {n} por la cámara", camara=True, qr=None,
                                   ayuda=None, destino=None, correccion=None, esperado=None))
         i = self._figura(n - 1)
-        self.mundo.personas[i]["xy"] = np.array([POS_VISITANTE[0] - 2.5, 0.0])
+        self.mundo.personas[i]["xy"] = np.array(FUERA)   # entra desde afuera de la puerta
+        self.mundo.personas[i]["yaw"] = 0.0
 
     # --- flujo de una llegada -----------------------------------------------------------------
     def atender(self, i: int):
         mundo, x2, d1, caso = self.mundo, self.x2, self.d1, self.llegadas[i]
         fig = self._figura(i)
+        self._fig_actual, self.trato = fig, None
         fila = dict(n=caso["n"], titulo=caso["titulo"], esperado=caso["esperado"], robot=None,
                     final=None, destino=None, ayuda=None, ruta=None, llegada=None,
-                    correccion=None, cara=None)
+                    correccion=None, cara=None, aviso=None, humano=False, tiempo=None)
         self.resultados.append(fila)
         self.hud = {k: v for k, v in self.hud.items() if k == "Aviso"}
         self.hud.update({"Caso": f"{caso['n']}" + ("" if caso.get("camara") else
                                                    f"/{len(self.llegadas)}") + f": {caso['titulo']}",
                          "Persona": "llegando…" if caso.get("camara") else
                          f"{caso['etiqueta']} (llegando)"})
-        yield from mundo.caminar(fig, [POS_VISITANTE] if caso.get("camara")
-                                 else [ENTRADA, POS_VISITANTE])
+        # La persona entra por la puerta; el X2 deja de patrullar, vuelve a su puesto y la saluda.
+        yield from en_paralelo(mundo.caminar(fig, [ENTRADA, POS_VISITANTE]), self._recibir())
         mundo.personas[fig]["yaw"] = 0.0
+        inicio = mundo.t
+
+        def fin_interaccion():
+            fila["tiempo"] = mundo.t - inicio
 
         # 1. Imagen de llegada → reconocimiento. Con el dataset es SIMULADO; con la cámara del
         #    computador es REAL. En ambos casos el resultado sigue el mismo camino.
@@ -374,6 +462,7 @@ class Escenario:
             self.hud["Categoría"] = f"no pasa: {MOTIVOS[r.motivo]}"
         if caso.get("camara") or r.habilitado:
             self.hud["Persona"] = r.nombre or "sin identificar"
+        ctx = self._contexto(r, caso) if r.habilitado else None
         # El agente decide CÓMO decirlo (tono, ayuda sugerida, aviso a recepción); qué pasa ya lo
         # decidió registrar_llegada. El ánimo solo vive en esta llegada: no se guarda.
         animo = captura.animo if captura else None
@@ -387,7 +476,7 @@ class Escenario:
             x2.decir((voz.QR_DE_DEMOSTRACION + " " if qr_demo else "") + voz.A_RECEPCION)
             plan = None
         else:
-            plan = yield from self._hablar(r, animo)
+            plan = yield from self._hablar(r, animo, ctx)
         if plan and plan.aviso_recepcion:
             self.recepcion = f"caso {caso['n']}: {plan.aviso_recepcion}"
         if self.webcam is not None and caso.get("camara"):
@@ -396,6 +485,7 @@ class Escenario:
 
         if r.resultado == "rechazado" and not voz.a_recepcion(r):
             yield from x2.negar(2.5)
+            fin_interaccion()
             yield from mundo.caminar(fig, [ENTRADA, (ENTRADA[0] - 2.5, 3.0)])
             mundo.personas[fig]["xy"] = np.array([-40.0, fig])
             return
@@ -403,9 +493,11 @@ class Escenario:
         # 2b. Incertidumbre o QR que no sirve: el robot no orienta; recepción (el punto físico de
         #     atención humana) recibe el contexto y decide.
         if voz.a_recepcion(r):
+            fila["humano"] = True
             yield from x2.negar(1.5)
             self.recepcion = (f"caso {caso['n']} EN REVISIÓN: {MOTIVOS[r.motivo]}; "
                               f"evidencia {describir_evidencia(r.evidencia)}")
+            fin_interaccion()
             yield from mundo.caminar(fig, [POS_ANTE_RECEPCION])
             mundo.personas[fig]["yaw"] = np.pi / 2
             yield from x2.esperar(3.0)
@@ -425,8 +517,39 @@ class Escenario:
             self.hud["Permisos"] = "ayuda: " + ", ".join(AYUDAS[a] for a in r.ayuda_disponible)
             yield from mundo.caminar(fig, [POS_VISITANTE])
             mundo.personas[fig]["yaw"] = 0.0
-            plan = yield from self._hablar(r, animo)
+            ctx = self._contexto(r, caso)
+            plan = yield from self._hablar(r, animo, ctx)
         fila["final"] = r.categoria
+
+        # El destino puede venir del punto de encuentro de la visita, de la app móvil (clave de sus
+        # espacios), de la reserva del VIP o de la simulación.
+        visita = ctx["visita"] or {}
+        pedido = ((visita.get("punto_encuentro") if r.categoria in ("invitado", "externo")
+                   else None) or r.destino or caso["destino"]
+                  or (ctx["reservas"][0]["espacio"] if ctx["reservas"] else None))
+        destino = zona_de_destino(pedido) or DESTINO_POR_CATEGORIA[r.categoria]
+        lugar_nombre = nombre_destino(pedido if zona_de_destino(pedido) else destino)
+
+        # 2c. Invitado o externo: se avisa a su anfitrión o responsable y se espera la respuesta.
+        if r.categoria in ("invitado", "externo"):
+            estado = yield from self._esperar_aviso(r, caso, fila)
+            if estado == "sin_respuesta":
+                fila["humano"] = True
+                self._decir(f"{r.responsable} todavía no confirma. Puedes esperar en la sala de "
+                            "espera del lobby; recepción ya está enterada y te avisa.")
+                self.recepcion = (f"caso {caso['n']}: {r.nombre} espera a {r.responsable} en el "
+                                  "lobby (aviso sin respuesta)")
+                fila["destino"], fila["ayuda"] = "lobby", None
+                self.hud["Orientación"] = "sala de espera del lobby"
+                yield from x2.esperar(2.5)
+                fin_interaccion()
+                yield from mundo.caminar(fig, [POS_ESPERA])
+                fila["llegada"] = True
+                return
+            if estado == "aceptado":
+                self._decir(f"{r.responsable} ya viene en camino al punto de encuentro, "
+                            f"{lugar_nombre}. " + voz.cierre(r))
+                yield from x2.esperar(2.0)
 
         # 3. La persona decide cuánta ayuda necesita (en el modo cámara, con las teclas 1/2/3).
         self.hud["Orientación"] = "eligiendo ayuda…"
@@ -443,10 +566,6 @@ class Escenario:
                 yield
             preferida = self.eleccion
         nivel, nota = elegir_ayuda(r, preferida)
-        # El destino puede venir de la app móvil (clave de sus espacios) o de la simulación.
-        pedido = r.destino or caso["destino"]
-        destino = zona_de_destino(pedido) or DESTINO_POR_CATEGORIA[r.categoria]
-        lugar_nombre = nombre_destino(pedido if zona_de_destino(pedido) else destino)
         tour = r.categoria == "regular" and r.requiere_tour and nivel == "acompanamiento"
         self.hud["Orientación"] = (f"{lugar_nombre} · {AYUDAS[nivel]}"
                                    + (" · recorrido" if tour else ""))
@@ -468,28 +587,50 @@ class Escenario:
         lugar = self._lugar_en_zona(i, destino)
 
         if nivel == "indicacion":
-            x2.decir(f"Ve a {lugar_nombre}: sal a la izquierda y sigue "
-                     + ("el pasillo alterno; el central está cerrado." if alterna
-                        else "la señalización."))
+            self._decir(f"Ve a {lugar_nombre}: sal a la izquierda y sigue "
+                        + ("el pasillo alterno; el central está cerrado." if alterna
+                           else "la señalización."))
             yield from x2.esperar(2.0)
         elif nivel == "mapa":
-            x2.decir(f"Mira el mapa: {lugar_nombre} es la zona que parpadea.")
+            self._decir(f"Mira el mapa: {lugar_nombre} es la zona que parpadea.")
             yield from x2.senalar_mapa(destino, 3.0)
 
-        if nivel != "acompanamiento":
+        # El D1 lleva la maleta del VIP o la caja de herramientas del externo.
+        carga = ("maleta" if caso.get("equipaje") and r.categoria == "vip"
+                 else "caja" if r.categoria == "externo" else None)
+        primera = [SALIDA_VISITANTE] + puntos(tramos[0])
+        if nivel != "acompanamiento" and carga is None:
             self.hud["D1"] = "no hace falta"
-            yield from mundo.caminar(fig, [SALIDA_VISITANTE] + puntos(tramos[0]) + [lugar])
+            fin_interaccion()
+            yield from mundo.caminar(fig, primera + [lugar])
             fila["llegada"] = True
             return
 
-        # 4. Acompañamiento: el coordinador le pasa al D1 solo la ruta.
+        # 4. El coordinador le pasa al D1 solo la ruta (y si lleva algo).
         while self.d1_ocupado:
             self.hud["D1"] = "ocupado; espera a que vuelva"
             yield
         self.d1_ocupado = True
-        primera = [SALIDA_VISITANTE] + puntos(tramos[0])
-        self.hud["D1"] = "viene a recoger a la persona"
+        self.hud["D1"] = "viene a recoger a la persona" if carga is None else "viene por la carga"
         yield from d1.ir_a([tuple(mundo.punto_de_encuentro(fig, primera))])
+        if carga:
+            yield from self._recibir_carga(carga)
+        if nivel != "acompanamiento":
+            # La persona va sola; el D1 lleva la maleta por la misma ruta y la deja en el destino.
+            self.hud["D1"] = f"lleva la maleta a {lugar_nombre}"
+            fin_interaccion()
+            yield from en_paralelo(d1.ir_a(puntos(tramos[0])),
+                                   mundo.caminar(fig, primera + [lugar]))
+            yield from self._entregar_carga()
+            self.d1_nodo = tramos[0][-1]
+            self.hud["D1"] = f"dejó la maleta en {lugar_nombre}; vuelve a la base"
+            fila["llegada"] = True
+            self.fondo.append(self._d1_vuelve())
+            return
+        fin_interaccion()
+        if r.categoria == "externo":
+            mundo.geocerca = True
+            self.hud["Geocerca"] = "solo el pasillo de servicio y Mantenimiento"
         for k, (zona, camino) in enumerate(zip(paradas, tramos)):
             self.hud["D1"] = (f"recorrido: {ZONAS[zona].nombre}" if tour and k < len(paradas) - 1
                               else f"acompañando a {ZONAS[zona].nombre}")
@@ -497,6 +638,10 @@ class Escenario:
             if k < len(paradas) - 1:
                 yield from x2.esperar(1.0)
         self.d1_nodo = tramos[-1][-1]
+        mundo.geocerca = False
+        self.hud.pop("Geocerca", None)
+        if carga:
+            yield from self._entregar_carga()
         self.hud["D1"] = f"confirmó la llegada a {lugar_nombre}; vuelve a la base"
         fila["llegada"] = True
         if tour:
@@ -524,8 +669,11 @@ class Escenario:
         self.d1_ocupado = False
 
     def _lugar_en_zona(self, i: int, zona: str) -> tuple[float, float]:
-        cx, cy = ZONAS[zona].centro
-        return (cx + ((i % 3) - 1) * 0.9, cy + ((i // 3) % 2 - 0.5) * 0.8)
+        """Lugar de la persona al llegar: junto a la puerta, sin pisar los muebles."""
+        cx, cy = punto_llegada(zona)
+        a, b = ((i % 3) - 1) * 0.9, ((i // 3) % 2 - 0.5) * 0.8
+        horizontal = ZONAS[zona].entrada[1] == ZONAS[zona].centro[1]   # puerta en muro e/o
+        return (cx + b, cy + a) if horizontal else (cx + a, cy + b)
 
     # --- un cuadro ------------------------------------------------------------------------------
     @property
@@ -542,6 +690,9 @@ class Escenario:
                 if self.bloquear_en and self.llegadas[self.siguiente]["n"] == self.bloquear_en \
                         and not self.mundo.bloqueado:
                     self.alternar_bloqueo()
+                if self.patrulla is not None:     # llega alguien: deja de patrullar
+                    self.patrulla.close()
+                    self.patrulla = None
                 self.actual = self.atender(self.siguiente)
                 self.siguiente += 1
         if self.actual is not None:
@@ -551,6 +702,14 @@ class Escenario:
                 self.actual, self.espera = None, 1.5
                 if self.webcam is not None:
                     self.webcam.mensaje = "Espacio: el X2 toma la foto de la siguiente persona"
+                    siguiente = self.mundo.personas[self._figura(len(self.llegadas))]
+                    siguiente["xy"], siguiente["yaw"] = np.array(FUERA), 0.0
+        if self.actual is None:
+            # Sin nadie llegando, el X2 recorre el lobby buscando a quién recibir.
+            if self.patrulla is None:
+                self.patrulla = self.x2.patrullar()
+                self.hud["X2"] = "recorre el lobby buscando a quién recibir"
+            next(self.patrulla)
         for tarea in list(self.fondo):
             try:
                 next(tarea)
@@ -575,13 +734,16 @@ class Escenario:
         # Solo lo esencial: quién es, qué es, cómo se ve, qué dice el X2 y a dónde va. El detalle
         # (evidencia, acreditación, ruta, D1) queda en self.hud para las capturas y el informe.
         filas = [("Hora", f"{self.ahora():%H:%M}")]
-        for clave, titulo in [("Paso", "Paso"), ("Persona", "Persona"), ("Categoría", "Categoría"),
-                              ("Ánimo", "Ánimo"), ("QR", "QR"), ("X2 dice", "X2 dice"),
-                              ("Orientación", "Va a"), ("Aviso", "Aviso")]:
+        for clave, titulo in [("X2", "X2"), ("Paso", "Paso"), ("Persona", "Persona"),
+                              ("Categoría", "Categoría"), ("Trato", "Trato"), ("Ánimo", "Ánimo"),
+                              ("QR", "QR"), ("X2 dice", "X2 dice"), ("App", "App"),
+                              ("Orientación", "Va a"), ("D1", "D1"), ("Geocerca", "Geocerca"),
+                              ("Aviso", "Aviso")]:
             if clave in self.hud:
-                lineas = textwrap.wrap(self.hud[clave], 44) or [""]
+                lineas = textwrap.wrap(self.hud[clave], 48) or [""]
                 filas.append((titulo, lineas[0]))
-                filas += [("", l) for l in lineas[1:5 if clave == "X2 dice" else 2]]
+                filas += [("", l) for l in lineas[1:6 if clave == "X2 dice" else
+                                                     3 if clave == "App" else 2]]
         izq = "\n".join(f for f, _ in filas)
         der = "\n".join(v for _, v in filas)
 
@@ -595,7 +757,8 @@ class Escenario:
         else:
             lado += ["", "REGISTRADOS"] + [f"{p['nombre_demo']}: " + self._categoria_de(p)
                                            for p in self.registradas + self.invitados]
-            teclas = "Espacio: llegada · I: traigo QR · Q: sin QR · 1/2/3: ayuda"
+            teclas = ("Espacio: llegada · I: traigo QR · Q: sin QR · 1/2/3: ayuda\n"
+                      f"N: anfitrión {'NO responde' if self.anfitrion_no_responde else 'responde'}")
         textos = [
             (mujoco.mjtGridPos.mjGRID_TOPLEFT, "N CLUB\n" + izq, "\n" + der),
             (mujoco.mjtGridPos.mjGRID_TOPRIGHT, "\n".join(lado), ""),
@@ -603,7 +766,7 @@ class Escenario:
              "REAL: cámara, reconocimiento y decisiones · SIMULADO: robots y club" if self.webcam
              else "SIMULADO: robots, club y huellas · REAL: decisiones (igual que Supabase)", ""),
             (mujoco.mjtGridPos.mjGRID_BOTTOMRIGHT,
-             teclas + "\nB: pasillo · C: cámara", ""),
+             teclas + f"\nB: pasillo · C: cámara ({self.vista})", ""),
         ]
         return [(mujoco.mjtFontScale.mjFONTSCALE_150, pos, ascii(a), ascii(b))
                 for pos, a, b in textos]
@@ -679,11 +842,32 @@ def metricas_faciales(datos: dict) -> list[str]:
     ]
 
 
+def metricas_propuesta(resultados: list[dict]) -> list[str]:
+    """Las métricas de la propuesta: tiempo de interacción, avisos y apoyo humano."""
+    tiempos = [f["tiempo"] for f in resultados if f["tiempo"] is not None]
+    avisos = [f["aviso"] for f in resultados if f["aviso"]]
+    humanos = sum(1 for f in resultados if f["humano"])
+    return [
+        "## Métricas de la propuesta", "",
+        "Tiempo de interacción: desde que la persona queda frente al X2 hasta que recibe la "
+        "orientación (o pasa a recepción). Es tiempo simulado: los pasos con cámara real duran "
+        "hasta 10 s cada uno y no están en esta corrida.", "",
+        f"- Tiempo de interacción: promedio {sum(tiempos) / len(tiempos):.1f} s, máximo "
+        f"{max(tiempos):.1f} s ({len(tiempos)} casos)" if tiempos else "- Sin tiempos",
+        f"- Avisos al anfitrión o responsable: {len(avisos)} emitidos, "
+        f"{sum(1 for a in avisos if a == 'aceptado')} aceptados, "
+        f"{sum(1 for a in avisos if a == 'sin_respuesta')} sin respuesta (SIMULADO: en la app los "
+        "marca la persona avisada)",
+        f"- Casos que necesitaron apoyo humano (recepción o espera del anfitrión): {humanos} de "
+        f"{len(resultados)} ({100 * humanos / len(resultados):.0f} %)", "",
+    ]
+
+
 def escribir_validacion(resultados: list[dict], datos: dict, ruta_md: Path, hora: str) -> None:
     etiquetas = ["vip", "regular", "personal", "invitado", "externo", "pendiente_revision",
                  "rechazado"]
     nombres = {**{k: CATEGORIAS[k] for k in etiquetas[:5]},
-               "pendiente_revision": "Pendiente de revisión", "rechazado": "Rechazado"}
+               "pendiente_revision": "Pendiente de revisión", "rechazado": "No pasa / recepción"}
     l = [
         "# Validación de la simulación",
         "",
@@ -699,17 +883,20 @@ def escribir_validacion(resultados: list[dict], datos: dict, ruta_md: Path, hora
         "## Casos: esperado frente a observado",
         "",
         "| # | Caso | Reconocimiento | Robot esperado | Robot observado | Recepción | Destino "
-        "| Ayuda | Ruta | Llegada | OK |",
-        "|---|---|---|---|---|---|---|---|---|---|---|",
+        "| Ayuda | Ruta | Aviso | Tiempo (s) | Llegada | OK |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for f in resultados:
         e = f["esperado"]
         esp_dest = e.get("destino", "—")
+        tiempo = "—" if f["tiempo"] is None else f"{f['tiempo']:.1f}"
         l.append(
             f"| {f['n']} | {f['titulo']} | {(f['cara'] or '—').replace('_', ' ')} | "
             f"{nombres[e['robot']]} | {nombres.get(f['robot'], f['robot'])} | "
             f"{(f['correccion'] or '—')} | {f['destino'] or '—'} (esp. {esp_dest}) | "
-            f"{f['ayuda'] or '—'} (esp. {e.get('ayuda', '—')}) | {f['ruta'] or '—'} | "
+            f"{f['ayuda'] or '—'} (esp. {e.get('ayuda') or '—'}) | {f['ruta'] or '—'} | "
+            f"{(f['aviso'] or '—').replace('_', ' ')} | "
+            f"{tiempo} | "
             f"{'sí' if f['llegada'] else '—'} | {'✅' if evaluar(f) else '❌'} |")
     total = sum(1 for f in resultados if evaluar(f))
     l += ["", f"**{total} de {len(resultados)} casos dieron el resultado esperado.**", "",
@@ -731,6 +918,7 @@ def escribir_validacion(resultados: list[dict], datos: dict, ruta_md: Path, hora
           f"- Llegada confirmada: {llegadas} de {len(orientados)}",
           f"- Casos que pasaron por recepción: "
           f"{sum(1 for f in resultados if f['correccion'])} (todos con motivo registrado)", ""]
+    l += metricas_propuesta(resultados)
     l += metricas_faciales(datos)
     ruta_md.parent.mkdir(parents=True, exist_ok=True)
     ruta_md.write_text("\n".join(l), encoding="utf-8")
@@ -738,10 +926,17 @@ def escribir_validacion(resultados: list[dict], datos: dict, ruta_md: Path, hora
 
 # --- Modos de ejecución -----------------------------------------------------------------------
 def camara_general(cam: mujoco.MjvCamera) -> None:
-    cam.lookat[:] = [3.5, 0, 0]
-    cam.distance = 25
-    cam.azimuth = -25
-    cam.elevation = -50
+    """El club desde arriba (no tiene techo)."""
+    cam.lookat[:] = [3.0, 0, 0]
+    cam.distance = 34
+    cam.azimuth = 0          # desde la entrada hacia el fondo del club
+    cam.elevation = -64
+
+
+def camara_visitante(cam: mujoco.MjvCamera, esc: "Escenario") -> None:
+    """Los ojos de la persona que entra (o de la siguiente en entrar)."""
+    cam.type = mujoco.mjtCamera.mjCAMERA_FIXED
+    cam.fixedcamid = esc.model.camera(f"vista_{esc.figura_vista}").id
 
 
 def camara_recepcion(cam: mujoco.MjvCamera) -> None:
@@ -756,7 +951,7 @@ def camara_recepcion(cam: mujoco.MjvCamera) -> None:
 def con_visor(esc: Escenario, velocidad: float) -> None:
     import mujoco.viewer
 
-    camaras = ["general", "recepcion", "d1"]
+    camaras = ["visitante", "general", "recepcion", "d1"]
     cambio = {"pendiente": False, "actual": 0}
     bloqueo = {"pendiente": False}
 
@@ -767,6 +962,8 @@ def con_visor(esc: Escenario, velocidad: float) -> None:
             esc.webcam.buscar_qr = False      # la persona no tiene QR
         elif codigo == ord("I") and esc.webcam is not None:
             esc.con_invitacion = True         # trae invitación u orden: salta al QR
+        elif codigo == ord("N") and esc.webcam is not None:
+            esc.anfitrion_no_responde = not esc.anfitrion_no_responde
         elif codigo in TECLAS_AYUDA:
             esc.eleccion = TECLAS_AYUDA[codigo]
         elif codigo == 32:        # espacio
@@ -780,7 +977,10 @@ def con_visor(esc: Escenario, velocidad: float) -> None:
 
     def poner_camara(cam: mujoco.MjvCamera) -> None:
         nombre = camaras[cambio["actual"]]
-        if nombre == "general":
+        esc.vista = nombre
+        if nombre == "visitante":
+            camara_visitante(cam, esc)
+        elif nombre == "general":
             cam.type = mujoco.mjtCamera.mjCAMERA_FREE
             camara_general(cam)
         elif nombre == "recepcion":
@@ -793,7 +993,7 @@ def con_visor(esc: Escenario, velocidad: float) -> None:
     with mujoco.viewer.launch_passive(esc.model, esc.data, key_callback=tecla,
                                       show_left_ui=False, show_right_ui=False) as visor:
         visor.opt.label = mujoco.mjtLabel.mjLABEL_SITE
-        camara_general(visor.cam)
+        poner_camara(visor.cam)
         cuadro = 1 / 60
         while visor.is_running():
             t0 = time.perf_counter()
@@ -802,6 +1002,8 @@ def con_visor(esc: Escenario, velocidad: float) -> None:
                     cambio["pendiente"] = False
                     cambio["actual"] = (cambio["actual"] + 1) % len(camaras)
                     poner_camara(visor.cam)
+                elif camaras[cambio["actual"]] == "visitante":
+                    camara_visitante(visor.cam, esc)   # sigue a quien está entrando
                 if bloqueo["pendiente"]:
                     bloqueo["pendiente"] = False
                     esc.alternar_bloqueo()
@@ -815,8 +1017,9 @@ def con_visor(esc: Escenario, velocidad: float) -> None:
             time.sleep(max(0.0, cuadro - (time.perf_counter() - t0)))
 
 
-def con_capturas(esc: Escenario, carpeta: Path, cada: float) -> None:
-    """Corre la demo completa sin ventana y guarda una imagen cada `cada` segundos simulados."""
+def con_capturas(esc: Escenario, carpeta: Path, cada: float, vista: str = "general") -> None:
+    """Corre la demo completa sin ventana y guarda una imagen cada `cada` segundos simulados,
+    desde arriba ("general") o desde los ojos de quien entra ("visitante")."""
     from PIL import Image
 
     carpeta.mkdir(parents=True, exist_ok=True)
@@ -828,6 +1031,8 @@ def con_capturas(esc: Escenario, carpeta: Path, cada: float) -> None:
     dt, proxima, n = 1 / 30, 0.0, 0
     while not esc.terminado:
         esc.paso(dt)
+        if vista == "visitante":
+            camara_visitante(cam, esc)
         if esc.mundo.t >= proxima:
             render.update_scene(esc.data, cam, opciones)
             Image.fromarray(render.render()).save(carpeta / f"{n:03d}.png")
@@ -861,6 +1066,8 @@ def main() -> None:
     args.add_argument("--validar", action="store_true", help="correr los casos y escribir el informe")
     args.add_argument("--capturas", type=Path, help="carpeta para guardar imágenes, sin ventana")
     args.add_argument("--cada", type=float, default=4.0, help="segundos entre capturas")
+    args.add_argument("--vista", choices=["general", "visitante"], default="general",
+                      help="cámara de las capturas: desde arriba o desde los ojos de quien entra")
     args.add_argument("--camara", nargs="?", const=0, type=int, metavar="N",
                       help="usar la cámara N del computador como cámara del X2 (por defecto 0)")
     args.add_argument("--ollama", nargs="?", const=OLLAMA_MODELO, metavar="MODELO",
@@ -880,7 +1087,7 @@ def main() -> None:
     if a.validar:
         validar(esc, a.hora)
     elif a.capturas:
-        con_capturas(esc, a.capturas, a.cada)
+        con_capturas(esc, a.capturas, a.cada, a.vista)
     else:
         con_visor(esc, a.velocidad)
 

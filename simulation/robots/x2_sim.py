@@ -6,8 +6,11 @@ del computador con el modelo facial real (ver camaras.py).
 
 from collections.abc import Callable
 
-from animacion import POSE_ESCANEAR, Mundo
+import numpy as np
+
+from animacion import POSE_ESCANEAR, YAW_PUESTO, Mundo
 from caras import Captura
+from club import PATRULLA_X2, POS_X2
 
 
 class X2Simulado:
@@ -38,3 +41,29 @@ class X2Simulado:
 
     def esperar(self, segundos: float):
         yield from self.mundo.esperar(segundos)
+
+    def ir_a(self, puntos):
+        yield from self.mundo.x2_caminar(puntos)
+
+    def volver_al_puesto(self):
+        """Camina a su puesto junto al mapa y se gira hacia la entrada."""
+        self.detener()
+        if np.linalg.norm(self.mundo.x2_xy - np.array(POS_X2)) > 0.05:
+            yield from self.mundo.x2_caminar([POS_X2])
+        yield from self.mundo.x2_girar(YAW_PUESTO, 0.8)
+
+    def patrullar(self):
+        """Mientras no llega nadie, recorre el lobby buscando a quién recibir (no termina)."""
+        try:
+            while True:
+                for punto in PATRULLA_X2:
+                    self.mundo.x2_buscando = True
+                    yield from self.mundo.x2_caminar([punto])
+                    yield from self.mundo.esperar(1.5)
+        finally:
+            self.detener()
+
+    def detener(self) -> None:
+        self.mundo.x2_andando = False
+        self.mundo.x2_buscando = False
+        self.mundo.x2_extra = {}

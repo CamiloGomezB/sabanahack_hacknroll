@@ -42,6 +42,18 @@ export async function createMyPersona(input: NewPersonaInput): Promise<Persona> 
   return data as Persona;
 }
 
+/** Cómo prefiere que le hable el robot. Solo cambia el tono, nunca permisos. */
+export async function updateMyTrato(userId: string, trato: string): Promise<Persona> {
+  const { data, error } = await requireSupabase()
+    .from('personas')
+    .update({ trato: trato.trim() || null })
+    .eq('usuario_id', userId)
+    .select(PERSONA_COLUMNS)
+    .single();
+  if (error) throw error;
+  return data as Persona;
+}
+
 /** Retirar el consentimiento dispara personas_retirar_huellas, que borra las huellas faciales. */
 export async function updateMyConsent(userId: string, consent: boolean): Promise<Persona> {
   const { data, error } = await requireSupabase()

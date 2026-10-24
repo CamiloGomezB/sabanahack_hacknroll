@@ -8,6 +8,11 @@
 
 El agente nunca decide quién entra ni a dónde va: eso ya lo resolvió registrar_llegada. Solo decide
 cómo decirlo. El ánimo es una pista débil, no se guarda y el robot no lo menciona.
+
+El trato es lo que la persona escribió en la app ("Cómo prefieres que el robot te hable"): usted o
+tú, breve, nombre preferido. Solo cambia el tono, igual que el ánimo. Con el contexto de la llegada
+(contexto_llegada) el X2 dice lo que sigue: la reserva del VIP, la actividad del regular, las tareas
+y novedades del personal, y el aviso al anfitrión o responsable del invitado o externo.
 """
 
 import json
@@ -18,6 +23,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from caras import Animo
+from club import ZONAS, nombre_destino, zona_de_destino
 from recepcion import CATEGORIAS, Resolucion, mensaje_bienvenida
 
 OLLAMA_URL = "http://localhost:11434"
@@ -41,7 +47,112 @@ Reglas:
 - Usa lenguaje neutro en género: no supongas si la persona es hombre o mujer (evita "tranquilo",
   "bienvenido", "listo" y similares).
 - No agregues preguntas nuevas. Escribe con ortografía correcta en español (ñ y tildes).
+- Si viene "trato", respétalo: si pide usted, trata de usted; si pide brevedad, sé breve; usa el
+  nombre exactamente como aparece en el mensaje base.
 - Responde solo con el mensaje, sin comillas ni explicaciones."""
+
+
+@dataclass
+class Trato:
+    """Cómo prefiere la persona que le hable el robot, leído de su texto libre."""
+    texto: str | None = None
+    formal: bool = False
+    breve: bool = False
+    nombre: str | None = None
+
+
+def leer_trato(texto: str | None) -> Trato:
+    if not texto:
+        return Trato()
+    t = texto.lower()
+    formal = bool(re.search(r"\busted\b|formal", t)) and not re.search(r"tut[eé]a|\btú\b", t)
+    breve = bool(re.search(r"breve|cort[oa]s?\b|direct[oa]|prisa|r[aá]pid", t))
+    m = re.search(r"(?i:ll[aá]m[ae]me)\s+([A-ZÁÉÍÓÚÑ][\wáéíóúñ]+)", texto)
+    return Trato(texto, formal, breve, m.group(1) if m else None)
+
+
+# De tú a usted, en orden: primero las frases que dice el X2, después las palabras sueltas.
+_A_USTED = [
+    (r"¿Cómo prefieres que te ayude\?", "¿Cómo prefiere que le ayude?"),
+    (r"Qué bueno verte", "Qué gusto verle"), (r"ayudarte", "ayudarle"),
+    (r"Si necesitas algo, cuenta conmigo", "Si necesita algo, cuente conmigo"),
+    (r"si quieres", "si quiere"), (r"Si prefieres", "Si prefiere"),
+    (r"como prefieras", "como prefiera"),
+    (r"No te preocupes", "No se preocupe"), (r"\bllegaste\b", "llegó"),
+    (r"\bVe a\b", "Vaya a"), (r"sal a la izquierda y sigue", "salga a la izquierda y siga"),
+    (r"\bMira\b", "Mire"), (r"\bPuedes\b", "Puede"), (r"\bpuedes\b", "puede"),
+    (r"\bTienes\b", "Tiene"), (r"\btienes\b", "tiene"), (r"\bespera\b(?= en)", "espere"),
+    (r"\bAcércate\b", "Acérquese"), (r"\bMuéstrame\b", "Muéstreme"),
+    (r"\bte\b", "le"), (r"\bTu\b", "Su"), (r"\btu\b", "su"), (r"\btus\b", "sus"),
+]
+
+
+def ajustar(texto: str, trato: Trato | None) -> str:
+    """Pasa a usted lo que dice el X2 si la persona lo pidió."""
+    if not trato or not trato.formal:
+        return texto
+    for patron, nuevo in _A_USTED:
+        texto = re.sub(patron, nuevo, texto)
+    return texto
+
+
+def _lugar(clave: str | None) -> str:
+    if not clave:
+        return "recepción"
+    return nombre_destino(clave) if zona_de_destino(clave) else clave
+
+
+def lo_que_sigue(r: Resolucion, ctx: dict | None, breve: bool) -> str:
+    """Frase con el siguiente paso según el perfil, a partir de contexto_llegada."""
+    if not ctx:
+        return ""
+    v = ctx.get("visita") or {}
+    if r.categoria == "vip":
+        if ctx["reservas"]:
+            res = ctx["reservas"][0]
+            frase = (f"Tienes una reserva en {_lugar(res['espacio'])} de {res['inicio']:%H:%M} a "
+                     f"{res['fin']:%H:%M}.")
+        else:
+            frase = "Puedo llevarte a la Sala VIP o al comedor reservado, como prefieras."
+        if ctx.get("equipaje"):
+            frase += " El D1 lleva tu maleta."
+        return frase
+    if r.categoria == "regular" and ctx["actividades"] and not breve:
+        a = ctx["actividades"][0]
+        return f"Hoy hay {a['titulo']} a las {a['hora']:%H:%M} en {ZONAS[a['zona']].nombre}."
+    if r.categoria == "personal":
+        t = ctx["tareas"]
+        frase = ""
+        if t:
+            primera = t[0]
+            hora = f" a las {primera['hora']:%H:%M}" if primera["hora"] else ""
+            frase = (f"Tienes {len(t)} {'tarea' if len(t) == 1 else 'tareas'} hoy; la primera: "
+                     f"{primera['titulo']}{hora}.")
+        if ctx["novedades"] and not breve:
+            frase += f" Novedad: {ctx['novedades'][0]['titulo']}."
+        return frase.strip()
+    if r.categoria == "invitado" and v.get("responsable"):
+        return (f"Le estoy avisando a {v['responsable']} que llegaste; el punto de encuentro es "
+                f"{_lugar(v['punto_encuentro'])}.")
+    if r.categoria == "externo" and v.get("responsable"):
+        return (f"Le estoy avisando a {v['responsable']}, tu responsable. Motivo: "
+                f"{v['motivo'] or 'orden de trabajo'}.")
+    return ""
+
+
+def espera_respuesta(r: Resolucion, ctx: dict | None) -> bool:
+    """Invitado o externo con anfitrión o responsable: antes de orientar se espera su respuesta."""
+    return bool(ctx and (ctx.get("visita") or {}).get("responsable")
+                and r.categoria in ("invitado", "externo"))
+
+
+def cierre(r: Resolucion) -> str:
+    """Última frase: la pregunta por la ayuda, o el acompañamiento obligatorio del externo."""
+    if len(r.ayuda_disponible) > 1:
+        return "¿Cómo prefieres que te ayude?"
+    if r.categoria == "externo":
+        return "El D1 lleva tus herramientas y te acompaña hasta tu destino."
+    return "El D1 te acompaña hasta tu destino."
 
 
 @dataclass
@@ -50,6 +161,8 @@ class Plan:
     ayuda_sugerida: str | None     # nivel de ayuda que el X2 ofrece primero
     aviso_recepcion: str | None    # nota para el panel de recepción
     fuente: str = "reglas"
+    trato: Trato | None = None
+    llamar: str | None = None      # nombre con el que el X2 le habla (el preferido, si lo dio)
 
 
 def _saludo(ahora: datetime) -> str:
@@ -57,7 +170,16 @@ def _saludo(ahora: datetime) -> str:
             else "Buenas noches")
 
 
-def plan_por_reglas(r: Resolucion, animo: Animo | None, ahora: datetime) -> Plan:
+def plan_por_reglas(r: Resolucion, animo: Animo | None, ahora: datetime,
+                    ctx: dict | None = None) -> Plan:
+    trato = leer_trato(ctx.get("trato") if ctx else None)
+    plan = _plan_por_reglas(r, animo, ahora, ctx, trato)
+    plan.texto, plan.trato = ajustar(plan.texto, trato), trato
+    return plan
+
+
+def _plan_por_reglas(r: Resolucion, animo: Animo | None, ahora: datetime, ctx: dict | None,
+                     trato: Trato) -> Plan:
     tono = animo.tono if animo else "neutral"
     seguro = animo is not None and animo.confianza >= CONFIANZA_AVISO
     aviso = None
@@ -74,6 +196,7 @@ def plan_por_reglas(r: Resolucion, animo: Animo | None, ahora: datetime) -> Plan
     cat = CATEGORIAS.get(r.categoria, "")
     extra = (f" de {r.empresa}" if r.empresa else
              f" de {r.responsable}" if r.responsable else "")
+    nombre = trato.nombre or r.nombre
     disponibles = r.ayuda_disponible
     sugerida = None
     if r.requiere_tour or tono in ("tenso", "triste"):
@@ -83,21 +206,26 @@ def plan_por_reglas(r: Resolucion, animo: Animo | None, ahora: datetime) -> Plan
     if sugerida not in disponibles:
         sugerida = disponibles[0] if len(disponibles) == 1 else None
 
-    if tono == "contento":
-        texto = f"¡{_saludo(ahora)}, {r.nombre}! Qué bueno verte ({cat}{extra})."
+    if trato.breve:
+        texto = f"{_saludo(ahora)}, {nombre} ({cat}{extra})."
+    elif tono == "contento":
+        texto = f"¡{_saludo(ahora)}, {nombre}! Qué bueno verte ({cat}{extra})."
     elif tono == "tenso":
-        texto = f"{_saludo(ahora)}, {r.nombre} ({cat}{extra}). Con calma, estoy aquí para ayudarte."
+        texto = f"{_saludo(ahora)}, {nombre} ({cat}{extra}). Con calma, estoy aquí para ayudarte."
     elif tono == "triste":
-        texto = f"{_saludo(ahora)}, {r.nombre} ({cat}{extra}). Si necesitas algo, cuenta conmigo."
+        texto = f"{_saludo(ahora)}, {nombre} ({cat}{extra}). Si necesitas algo, cuenta conmigo."
     else:
-        texto = f"¡{_saludo(ahora)}, {r.nombre}! ({cat}{extra})."
+        texto = f"¡{_saludo(ahora)}, {nombre}! ({cat}{extra})."
+    sigue = lo_que_sigue(r, ctx, trato.breve)
+    if sigue:
+        texto += " " + sigue
     if r.requiere_tour:
         texto += " Es tu primera visita: si quieres, el D1 te muestra el club."
     elif sugerida == "acompanamiento" and len(disponibles) > 1:
         texto += " Si prefieres, el D1 te acompaña."
-    texto += (" ¿Cómo prefieres que te ayude?" if len(disponibles) > 1
-              else " El D1 te acompaña hasta tu destino.")
-    return Plan(texto, sugerida, aviso)
+    if not espera_respuesta(r, ctx):   # si no, el X2 lo dice cuando responde el anfitrión
+        texto += " " + cierre(r)
+    return Plan(texto, sugerida, aviso, llamar=nombre)
 
 
 REINTENTO_QR = ("Todavía no pude leer el código. Prueba acercándolo o alejándolo un poco y mantén "
@@ -174,8 +302,9 @@ class Agente:
         with urllib.request.urlopen(pedido, timeout=espera) as r:
             return json.load(r)["message"]["content"].strip()
 
-    def planear(self, r: Resolucion, animo: Animo | None, ahora: datetime) -> Plan:
-        return plan_por_reglas(r, animo, ahora)
+    def planear(self, r: Resolucion, animo: Animo | None, ahora: datetime,
+                ctx: dict | None = None) -> Plan:
+        return plan_por_reglas(r, animo, ahora, ctx)
 
     def redactar(self, plan: Plan, r: Resolucion, animo: Animo | None) -> Future | None:
         """Pide a Ollama una versión más natural del mensaje (en otro hilo, para no frenar la
@@ -183,7 +312,9 @@ class Agente:
         if not self.listo:
             return None
         datos = dict(mensaje_base=plan.texto, tono=animo.tono if animo else "neutral",
-                     nombre=r.nombre, puede_pasar=r.habilitado)
+                     nombre=plan.llamar or r.nombre, puede_pasar=r.habilitado)
+        if plan.trato and plan.trato.texto:
+            datos["trato"] = plan.trato.texto
         return self._hilos.submit(self._chat, json.dumps(datos, ensure_ascii=False))
 
     @staticmethod
@@ -191,7 +322,8 @@ class Agente:
         """Usa la versión de Ollama solo si respeta lo esencial; si no, la de las reglas: conserva
         los nombres propios (persona, anfitrión, empresa), no inventa preguntas y no es larga."""
         texto = propuesta.strip().strip('"“”').strip()
-        nombres = [n for n in (r.nombre, r.responsable, r.empresa) if n and r.habilitado]
+        nombres = [n for n in (plan.llamar or r.nombre, r.responsable, r.empresa)
+                   if n and r.habilitado]
         base, nuevo = plan.texto.lower(), texto.lower()
         inventa = any(f in nuevo and f not in base for f in FRASES_RIESGOSAS)
         valida = (0 < len(texto) <= 260
@@ -201,4 +333,5 @@ class Agente:
                   and not re.search(r"acompan(?!ñ)|accompan", nuevo))
         if not valida:
             return plan
-        return Plan(texto, plan.ayuda_sugerida, plan.aviso_recepcion, "ollama")
+        return Plan(texto, plan.ayuda_sugerida, plan.aviso_recepcion, "ollama", plan.trato,
+                    plan.llamar)

@@ -13,6 +13,7 @@ import { reservableSpacesFor, spaceName } from '@/constants/spaces';
 import { spacing } from '@/constants/theme';
 import { canInviteGuests, canReserve } from '@/features/auth/permissions';
 import type { SessionState } from '@/features/auth/SessionProvider';
+import { ArrivalNotices } from '@/features/notices/ArrivalNotices';
 import { invitationsServiceFor } from '@/features/invitations/service';
 import { VISIT_STATE } from '@/features/invitations/visitState';
 import { reservationsRepositoryFor } from '@/features/reservations/repository';
@@ -43,6 +44,8 @@ export function MemberHome({ session }: { session: MemberSession }) {
           </>
         }
       />
+
+      {session.status === 'real' ? <ArrivalNotices personaId={persona.id} /> : null}
 
       <MemberQrSection session={session} membershipActive={status.active} />
 

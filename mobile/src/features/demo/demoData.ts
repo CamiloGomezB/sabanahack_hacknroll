@@ -28,6 +28,7 @@ function demoPersona(id: string, nombre: string, vinculo: Persona['vinculo'], ex
     vinculo_hasta: null,
     consentimiento_biometrico: false,
     consentimiento_fecha: null,
+    trato: null,
     ...extra,
   };
 }

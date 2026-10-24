@@ -2,7 +2,9 @@
 
 Importada del repo [thaliahero/app_registro_nclub](https://github.com/thaliahero/app_registro_nclub)
 (commit `4a9f6f0`) sin cambios de lógica. Las migraciones de la app eran idénticas a las de
-`../supabase/migrations/`, así que se usan esas; la propuesta quedó en `../supabase/proposed/`.
+`../supabase/migrations/`, así que se usan esas. Su propuesta de reservas quedó aplicada como
+`../supabase/migrations/20261024000006_reservas_tareas_servicios.sql` (con las zonas del club en el
+catálogo); el original sigue en `../supabase/proposed/` como referencia.
 
 Prototipo en **React Native + Expo (SDK 58) + TypeScript estricto + Expo Router + Supabase** para los
 cinco perfiles de N Club: miembro regular, miembro VIP, personal del club, invitado y trabajador externo.
@@ -62,13 +64,19 @@ Lo que la app usa desde el cliente (todo permitido a `authenticated` y protegido
 No se llaman `registrar_llegada`, `registrar_orientacion`, `completar_tour` ni `guardar_huella`
 (reservadas a `service_role`; las usa el robot/backend).
 
-### Cambios de base necesarios (propuesta, **no aplicada**)
+### Reservas, tareas, avisos y trato (aplicado)
 
-`../supabase/proposed/20261024000001_reservas_tareas_servicios.sql` define `espacios`,
-`reglas_reserva`, `reservas` (sin solapes por constraint de exclusión), `tareas_personal`,
-`solicitudes_servicio` y sus funciones (`disponibilidad_espacio`, `reservar_espacio`,
-`cancelar_reserva`, `marcar_tarea`, `resolver_solicitud`) con RLS. No se ejecutó contra ninguna base:
-revísala y pruébala en un proyecto de desarrollo antes de moverla a `migrations/`.
+- `20261024000006_reservas_tareas_servicios.sql`: `espacios`, `reglas_reserva`, `reservas` (sin
+  solapes), `tareas_personal`, `solicitudes_servicio` y sus funciones (`disponibilidad_espacio`,
+  `reservar_espacio`, `cancelar_reserva`, `marcar_tarea`, `resolver_solicitud`) con RLS. Las pantallas
+  de reservas y tareas siguen con sus datos SIMULADOS: falta conectarlas a estas funciones.
+- `20261024000007_anfitrion_avisos_trato.sql`:
+  - `personas.trato`: "Cómo prefieres que el robot te hable" en **Mi perfil** (solo el tono).
+  - `avisos`: cuando el robot registra la llegada de un invitado o externo, su anfitrión o
+    responsable recibe el aviso en el inicio de la app (en vivo con Realtime) y lo marca como
+    **Recibido** o **Voy en camino** (`responder_aviso`).
+  - `visitas.punto_encuentro` + `cambiar_punto_encuentro()`, `novedades` del personal y
+    `contexto_llegada()` (solo backend) para que el robot prepare el siguiente paso.
 
 Además, para que el invitado vea su pase sin depender del código compartido, haría falta una
 **Edge Function** (p. ej. `pase-invitado`) que reciba el token, lo valide con `hash_token` usando la
@@ -125,7 +133,7 @@ src/
   types/                    tipos del esquema
   utils/                    hora de Colombia, validación, formato
 ../supabase/migrations/     SQL entregado (sin cambios)
-../supabase/proposed/       SQL propuesto (no aplicado)
+../supabase/proposed/       propuesta original de la app (ya aplicada como 006)
 ```
 
 ## Seguridad

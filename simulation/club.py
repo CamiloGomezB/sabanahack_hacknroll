@@ -1,6 +1,7 @@
 """Plano del club (inventado para la demo). Coordenadas en metros; el eje x apunta hacia adentro.
 
-Los pasillos forman un grafo: las rutas se calculan con Dijkstra solo por tramos autorizados para
+Cada zona es una habitación con muros y una puerta en el lado de su entrada (sin techo, para verla
+desde arriba). Los pasillos forman un grafo: las rutas se calculan con Dijkstra solo por tramos autorizados para
 la categoría de la visita y que no estén bloqueados.
 """
 
@@ -67,9 +68,17 @@ POS_X2 = (-4.0, 0.0)          # el X2 mira hacia la entrada (-x)
 POS_VISITANTE = (-5.2, 0.0)   # donde se para la persona frente al X2
 POS_MAPA = (-4.3, 1.4)        # tablero con el mapa, a la derecha del X2
 BASE_D1 = (-4.2, -1.8)        # donde espera el D1
-POS_RECEPCION = (-7.0, 2.6)   # mostrador de recepción (humano)
-POS_ANTE_RECEPCION = (-7.0, 1.6)
+POS_RECEPCION = (-7.0, 2.2)   # mostrador de recepción (humano)
+POS_ANTE_RECEPCION = (-7.0, 1.3)
 SALIDA_VISITANTE = (-5.2, -2.4)  # primer paso desde el X2 hacia la salida del lobby
+POS_ESPERA = (-7.6, -1.9)     # sala de espera del lobby (sofás)
+FUERA = (ENTRADA[0] - 1.5, 0.0)  # afuera, frente a la puerta: ahí espera quien va a entrar
+
+# Puntos que el X2 recorre mientras no hay nadie llegando, buscando a quién recibir.
+PATRULLA_X2 = [(-5.6, 1.1), (-7.6, 0.5), (-7.2, -1.1), (-5.2, -1.2)]
+
+ALTO_MURO = 2.4
+ANCHO_PUERTA = 1.6
 
 # Recorrido de bienvenida para un miembro regular nuevo.
 RECORRIDO_TOUR = ["piscina", "canchas", "restaurante", "gimnasio"]
@@ -80,6 +89,7 @@ NODOS: dict[str, tuple[float, float]] = {
     "c0": (-2.0, 0.0), "c1": (2.0, 0.0), "c2": (9.0, 0.0), "c3": (12.6, 0.0),
     "n0": (-2.0, 3.0), "n1": (2.0, 3.0), "n2": (9.0, 3.0), "n3": (12.6, 3.0),
     "s0": (-2.0, -3.0), "s1": (2.0, -3.0), "s2": (9.0, -3.0), "s3": (12.6, -3.0),
+    "n4": (15.5, 3.0), "s4": (15.5, -3.0),   # frente a las puertas de Canchas y Mantenimiento
     **{f"z_{z.clave}": z.entrada for z in ZONAS.values() if z.clave != "lobby"},
 }
 
@@ -93,9 +103,10 @@ TRAMOS: list[tuple[str, str, frozenset | None]] = [
     ("s0", "s1", None), ("s1", "s2", None), ("s2", "s3", SOLO_PERSONAL),
     ("c0", "n0", None), ("c1", "n1", None), ("c2", "n2", None), ("c3", "n3", None),
     ("c0", "s0", None), ("c1", "s1", None), ("c2", "s2", None), ("c3", "s3", SOLO_PERSONAL),
-    ("n1", "z_sala_vip", None), ("n2", "z_piscina", None), ("n3", "z_canchas", None),
+    ("n3", "n4", None), ("s3", "s4", SOLO_PERSONAL),
+    ("n1", "z_sala_vip", None), ("n2", "z_piscina", None), ("n4", "z_canchas", None),
     ("c3", "z_restaurante", None), ("s2", "z_gimnasio", None),
-    ("s1", "z_oficinas", SOLO_PERSONAL), ("s3", "z_mantenimiento", SOLO_PERSONAL),
+    ("s1", "z_oficinas", SOLO_PERSONAL), ("s4", "z_mantenimiento", SOLO_PERSONAL),
 ]
 
 # Tramo que se puede cerrar en la demo (tecla B): pasillo central entre la Sala VIP y la Piscina.
@@ -149,3 +160,22 @@ def nodo_de_zona(zona: str) -> str:
 
 def usa_tramo(nodos: list[str], tramo: tuple[str, str]) -> bool:
     return any(_clave(a, b) == _clave(*tramo) for a, b in zip(nodos, nodos[1:]))
+
+
+def puerta(zona: Zona) -> tuple[str, float]:
+    """Muro de la zona donde va la puerta (n, s, e, o: el más cercano a su entrada) y la
+    coordenada del centro de la puerta a lo largo de ese muro."""
+    (cx, cy), (ax, ay), (ex, ey) = zona.centro, zona.tamano, zona.entrada
+    distancias = {"s": ey - (cy - ay / 2), "n": (cy + ay / 2) - ey,
+                  "o": ex - (cx - ax / 2), "e": (cx + ax / 2) - ex}
+    lado = min(distancias, key=distancias.get)
+    return lado, ex if lado in ("n", "s") else ey
+
+
+def punto_llegada(zona: str) -> tuple[float, float]:
+    """Dónde se para la persona al llegar: un poco adentro de la puerta, hacia el centro."""
+    z = ZONAS[zona]
+    (cx, cy), (ex, ey) = z.centro, z.entrada
+    d = math.dist(z.centro, z.entrada)
+    t = min(1.0, 0.7 / d) if d else 0.0
+    return (ex + (cx - ex) * t, ey + (cy - ey) * t)
