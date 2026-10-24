@@ -105,16 +105,14 @@ def ajustar(texto: str, trato: Trato | None) -> str:
     return texto
 
 
-def espera_respuesta(r: Resolucion, ctx: dict | None) -> bool:
-    """Invitado o externo con anfitrión o responsable: antes de orientar se espera su respuesta."""
-    return bool(ctx and (ctx.get("visita") or {}).get("responsable")
-                and r.categoria in ("invitado", "externo"))
+PREGUNTA_AYUDA = ("¿Cómo prefieres llegar? Te indico el camino, te lo muestro en el mapa o el D1 "
+                  "te acompaña.")
 
 
 def cierre(r: Resolucion) -> str:
     """Última frase: la pregunta por la ayuda, o el acompañamiento obligatorio del externo."""
     if len(r.ayuda_disponible) > 1:
-        return "¿Cómo prefieres que te ayude?"
+        return PREGUNTA_AYUDA
     if r.categoria == "externo":
         return "El D1 lleva tus herramientas y te acompaña hasta tu destino."
     return "El D1 te acompaña hasta tu destino."
@@ -189,9 +187,10 @@ def _plan_por_reglas(r: Resolucion, animo: Animo | None, ahora: datetime, ctx: d
         texto += " Es tu primera visita: si quieres, el D1 te muestra el club."
     elif sugerida == "acompanamiento" and len(disponibles) > 1:
         texto += " Si prefieres, el D1 te acompaña."
-    # La pregunta por la ayuda va después: cuando responde el anfitrión, cuando eligió entre las
-    # opciones o cuando confirmó la novedad. Una sola pregunta por vez.
-    if not espera_respuesta(r, ctx) and not oferta.pregunta:
+    # La pregunta por la ayuda va enseguida, también al invitado y al externo (el aviso a su
+    # anfitrión o responsable sigue en segundo plano). Si la bienvenida ya termina en otra pregunta
+    # (elegir plan, confirmar la novedad), va apenas responda. Una sola pregunta por vez.
+    if not oferta.pregunta:
         texto += " " + cierre(r)
     return Plan(texto, sugerida, aviso, llamar=nombre, oferta=oferta)
 

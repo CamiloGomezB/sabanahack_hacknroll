@@ -6,12 +6,14 @@
 
 import base64
 import json
+import time
+from collections import deque
 
 import cv2
 import numpy as np
 
 import dataset
-from caras import Captura, ModeloFacial
+from caras import ANCHO_WEBCAM, Captura, ModeloFacial, promedio
 
 
 # QR de la app móvil (repo app_registro_nclub): el QR personal y el del pase de invitado o externo
@@ -55,13 +57,23 @@ class CamaraWebcam:
 
     VENTANA = "Camara del X2 (real)"
     CADA = 5    # cuadros entre una identificación en vivo y la siguiente
+    # A 640x480 una cara a un metro mide ~55 px y no alcanza para comparar: se pide 1280x720.
+    RESOLUCION = (1280, 720)
+    # La huella que se entrega es el promedio de los cuadros de los últimos segundos que son de la
+    # misma cara: un cuadro suelto puede salir movido, de lado o a media luz.
+    JUNTAR_S = 2.0
+    MISMA_CARA = 0.45   # distancia máxima a la captura actual para entrar en el promedio
 
     def __init__(self, indice: int = 0):
         self.modelo = ModeloFacial()
         self.cap = cv2.VideoCapture(indice, cv2.CAP_DSHOW)
         if not self.cap.isOpened():
             raise RuntimeError("No se pudo abrir la cámara del computador.")
-        self.cuadro: np.ndarray | None = None
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.RESOLUCION[0])
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.RESOLUCION[1])
+        self.cuadro: np.ndarray | None = None   # lo que se muestra (en espejo)
+        self.crudo: np.ndarray | None = None    # lo que se analiza (tal como lo ve la cámara)
+        self.recientes: deque[tuple[float, Captura]] = deque(maxlen=12)
         self.mensaje = "Espacio: el X2 toma la foto"
         self.ultima: Captura | None = None
         # identificar(captura) -> (texto, reconocida): lo pone el coordinador para la vista en vivo.
@@ -78,6 +90,7 @@ class CamaraWebcam:
         """Lee un cuadro, dibuja la cara con quién parece ser y devuelve la tecla (-1 si ninguna)."""
         ok, cuadro = self.cap.read()
         if ok:
+            self.crudo = cuadro
             self.cuadro = cv2.flip(cuadro, 1)   # como un espejo
             vista = self.cuadro.copy()
             self.n += 1
@@ -91,10 +104,15 @@ class CamaraWebcam:
                 if texto:
                     self.qr, self.pase, self.buscar_qr = token_de_qr(texto), leer_pase(texto), False
             if self.identificar and self.n % self.CADA == 0:
-                c = self.modelo.capturar(self.cuadro)
+                c = self.huella()
                 self.vivo = self.identificar(c) if c.valida else (c.motivo, False)
-            for cara in self.modelo.detectar(vista)[:1]:
-                x, y, w, h = (int(v) for v in cara[:4])
+            # El recuadro se busca a media resolución (~10 ms en vez de ~47): es solo para dibujar.
+            esc = max(1, cuadro.shape[1] // 640)
+            chico = cuadro if esc == 1 else cv2.resize(cuadro, None, fx=1 / esc, fy=1 / esc,
+                                                       interpolation=cv2.INTER_AREA)
+            for cara in self.modelo.detectar(chico)[:1]:
+                x, y, w, h = (int(v * esc) for v in cara[:4])
+                x = vista.shape[1] - x - w      # la caja se dibuja sobre la vista en espejo
                 color = (80, 200, 80) if self.vivo and self.vivo[1] else (0, 170, 255)
                 cv2.rectangle(vista, (x, y), (x + w, y + h), color, 2)
                 if self.vivo:
@@ -109,10 +127,21 @@ class CamaraWebcam:
             cv2.imshow(self.VENTANA, vista)
         return cv2.waitKey(1)
 
+    def huella(self) -> Captura:
+        """Captura del cuadro actual, promediada con las recientes que son de la misma cara."""
+        c = self.modelo.capturar(self.crudo, ancho_max=ANCHO_WEBCAM)
+        if not c.valida:
+            return c
+        ahora = time.monotonic()
+        self.recientes.append((ahora, c))
+        juntas = [r for t, r in self.recientes if ahora - t <= self.JUNTAR_S
+                  and dataset.distancia(r.embedding, c.embedding) <= self.MISMA_CARA]
+        return promedio(juntas)
+
     def __call__(self) -> Captura:
-        if self.cuadro is None:
+        if self.crudo is None:
             return Captura(None, False, "la cámara no ha entregado imagen")
-        self.ultima = self.modelo.capturar(self.cuadro)
+        self.ultima = self.huella()
         return self.ultima
 
     def cerrar(self) -> None:

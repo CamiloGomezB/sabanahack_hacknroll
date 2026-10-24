@@ -42,6 +42,18 @@ export async function createMyPersona(input: NewPersonaInput): Promise<Persona> 
   return data as Persona;
 }
 
+/** Nombre y teléfono: lo único de su perfil que la persona puede cambiar (el resto, el club). */
+export async function updateMyDatos(userId: string, datos: { nombre: string; telefono: string }): Promise<Persona> {
+  const { data, error } = await requireSupabase()
+    .from('personas')
+    .update({ nombre_demo: datos.nombre.trim(), telefono: datos.telefono.trim() || null })
+    .eq('usuario_id', userId)
+    .select(PERSONA_COLUMNS)
+    .single();
+  if (error) throw error;
+  return data as Persona;
+}
+
 /** Cómo prefiere que le hable el robot. Solo cambia el tono, nunca permisos. */
 export async function updateMyTrato(userId: string, trato: string): Promise<Persona> {
   const { data, error } = await requireSupabase()

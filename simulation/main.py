@@ -13,6 +13,7 @@ corren en su versión simulada dentro de la misma escena de MuJoCo.
 
 import argparse
 import textwrap
+import threading
 import time
 import unicodedata
 from datetime import datetime, timedelta
@@ -25,11 +26,12 @@ import agente as voz
 import dataset
 import datos_falsos
 import flujos
+import huellas_app
 from agente import OLLAMA_MODELO, Agente
 from animacion import Mundo
 from camaras import QR_DEMO, CamaraDataset
 from caras import MODELO as MODELO_REAL
-from club import (BASE_D1, ENTRADA, FUERA, POS_ANTE_RECEPCION, POS_ESPERA, POS_VISITANTE,
+from club import (BASE_D1, ENTRADA, FUERA, POS_ANTE_RECEPCION, POS_VISITANTE,
                   RECORRIDO_TOUR, SALIDA_VISITANTE, TRAMO_BLOQUEABLE, ZONAS, nodo_de_zona,
                   nombre_destino, punto_llegada, puntos, ruta, usa_tramo, zona_de_destino)
 from base_real import BaseReal, ErrorBase
@@ -157,6 +159,11 @@ class Escenario:
             self.registradas = datos_falsos.agregar_caras_reales(self.datos, self.inicio)
             self.invitados = datos_falsos.agregar_qr_reales(self.datos, self.inicio)
             datos_falsos.agenda(self.datos, self.inicio)
+            if base is not None:
+                # Las caras que se reconocen salen de la base, no de la copia local: se traen al
+                # iniciar y cada SINCRONIZAR_CADA s (fotos nuevas de la app, personas borradas).
+                self._sincronizar_caras()
+                threading.Thread(target=self._sincronizar_siempre, daemon=True).start()
             webcam.identificar = self._quien
             self.llegadas = []
             figuras = [(f"Visitante {k + 1}", None) for k in range(self.PUESTOS_CAMARA)]
@@ -228,6 +235,26 @@ class Escenario:
         self.mundo.bloqueado = not self.mundo.bloqueado
         self.hud["Aviso"] = ("Mantenimiento cerró el pasillo central (Sala VIP - Piscina)"
                              if self.mundo.bloqueado else "Pasillo central abierto de nuevo")
+
+    SINCRONIZAR_CADA = 15.0   # s entre una lectura de las caras de la base y la siguiente
+
+    def _sincronizar_caras(self) -> None:
+        if not hasattr(self, "_modelo_fotos"):
+            from caras import ModeloFacial
+            self._modelo_fotos = ModeloFacial()   # uno propio: la cámara usa el suyo
+        try:
+            nombres = huellas_app.traer_de_base(self.base, self.datos, self._modelo_fotos)
+        except ErrorBase as e:
+            print(f"No se pudieron traer las caras de la base: {e}")
+            return
+        if nombres != getattr(self, "_nombres_base", None):
+            print(f"Caras registradas en la base: {', '.join(sorted(nombres)) or 'ninguna'}")
+            self._nombres_base = nombres
+
+    def _sincronizar_siempre(self) -> None:
+        while True:
+            time.sleep(self.SINCRONIZAR_CADA)
+            self._sincronizar_caras()
 
     def _quien(self, captura) -> tuple[str, bool]:
         """Vista en vivo de la cámara: a quién se parece la cara (y su tono), sin registrar ninguna
@@ -347,6 +374,17 @@ class Escenario:
         fila["aviso"] = aviso["estado"]
         return aviso["estado"]
 
+    def _seguir_aviso(self, r, caso, fila, lugar_nombre: str):
+        """En paralelo a la orientación: si el anfitrión o responsable no responde, recepción queda
+        avisada para ir al punto de encuentro."""
+        estado = yield from self._esperar_aviso(r, caso, fila)
+        if estado == "sin_respuesta":
+            fila["humano"] = True
+            self.recepcion = (f"caso {caso['n']}: {r.responsable} no confirma; recepción busca a "
+                              f"{r.nombre} en {lugar_nombre}")
+        elif estado == "aceptado":
+            self.hud["App"] = f"{r.responsable} confirmó: va a {lugar_nombre}"
+
     def _esperar_aviso_real(self, r):
         """--supabase: el aviso lo creó la base (trigger visitas_avisar_llegada) y lo responde el
         anfitrión o responsable en la app móvil real. Se consulta cada segundo."""
@@ -435,7 +473,7 @@ class Escenario:
             fila["plan"] = "propio"
             self.hud["Plan"] = "trae su propio plan"
             self._decir("Perfecto, como prefieras. " + voz.cierre(r))
-            yield from self.x2.esperar(2.0)
+            yield from self.x2.esperar(1.0 if caso.get("camara") else 2.0)
             return quiere
         texto, espacio = flujos.confirmar(self.datos, r, elegida, opciones, self.ahora())
         fila["plan"] = espacio or "sin cupo"
@@ -443,8 +481,9 @@ class Escenario:
                             else "sin cupo: recepción le busca otro horario")
         if espacio and self.base is not None:
             self.hud["Plan"] += " (en la simulación; la app no reserva por el robot)"
+        # Sin pausa: enseguida viene la pregunta por la ayuda (paso 3).
         self._decir(texto + (" " + voz.cierre(r) if espacio else ""))
-        yield from self.x2.esperar(3.0)
+        yield from self.x2.esperar(1.0 if caso.get("camara") else 3.0)
         return espacio
 
     def _confirmar_novedad(self, r, caso, fila):
@@ -654,31 +693,19 @@ class Escenario:
         destino = zona_de_destino(pedido) or DESTINO_POR_CATEGORIA[r.categoria]
         lugar_nombre = nombre_destino(pedido if zona_de_destino(pedido) else destino)
 
-        # 2c. Invitado o externo: se avisa a su anfitrión o responsable y se espera la respuesta.
+        # 2c. Invitado o externo: el aviso a su anfitrión o responsable sigue en segundo plano; la
+        #     persona no se queda esperando y va de una al punto de encuentro.
         if r.categoria in ("invitado", "externo"):
-            estado = yield from self._esperar_aviso(r, caso, fila)
-            if estado == "sin_respuesta":
-                fila["humano"] = True
-                self._decir(f"{r.responsable} todavía no confirma. Puedes esperar en la sala de "
-                            "espera del lobby; recepción ya está enterada y te avisa.")
-                self.recepcion = (f"caso {caso['n']}: {r.nombre} espera a {r.responsable} en el "
-                                  "lobby (aviso sin respuesta)")
-                fila["destino"], fila["ayuda"] = "lobby", None
-                self.hud["Orientación"] = "sala de espera del lobby"
-                yield from x2.esperar(2.5)
-                fin_interaccion()
-                yield from mundo.caminar(fig, [POS_ESPERA])
-                fila["llegada"] = True
-                return
-            if estado == "aceptado":
-                self._decir(f"{r.responsable} ya viene en camino al punto de encuentro, "
-                            f"{lugar_nombre}. " + voz.cierre(r))
-                yield from x2.esperar(2.0)
+            self.fondo.append(self._seguir_aviso(r, caso, fila, lugar_nombre))
 
         # 3. La persona decide cuánta ayuda necesita (en el modo cámara, con las teclas 1/2/3).
         self.hud["Orientación"] = "eligiendo ayuda…"
-        yield from x2.saludar(2.0)
         preferida = caso["ayuda"]
+        if r.ayuda_disponible == ["acompanamiento"]:
+            # Invitado o externo: no se pregunta (ya oyó que el D1 lo acompaña), el D1 lo lleva.
+            preferida = "acompanamiento"
+        elif preferida is not None:
+            yield from x2.saludar(2.0)   # casos guionados; con la cámara la pregunta ya se hizo
         if preferida is None:
             self.eleccion = None
             sugerida = (f" (sugerido: {list(TECLAS_AYUDA.values()).index(plan.ayuda_sugerida) + 1})"
@@ -758,6 +785,11 @@ class Escenario:
             fila["llegada"] = True
             self.fondo.append(self._d1_vuelve())
             return
+        # El D1 ya está con la persona: el X2 le dice que lo siga (pase lo que pase con el aviso).
+        self._decir(f"Sigue al D1, él te lleva hasta {lugar_nombre}."
+                    + (" Va contigo en todo el recorrido." if tour else ""))
+        self.hud["D1"] = "listo: la persona lo sigue"
+        yield from x2.esperar(2.0)
         fin_interaccion()
         if r.categoria == "externo":
             mundo.geocerca = True
@@ -892,7 +924,9 @@ class Escenario:
             lado += [f"{f['n']:>2}. X {f['titulo'][:30]}" for f in hechos if not evaluar(f)]
             teclas = f"Espacio: siguiente · A: {'auto' if self.automatico else 'manual'}"
         else:
+            con_cara = {f["persona_id"] for f in self.datos["fotografias"]}
             lado += ["", "REGISTRADOS"] + [f"{p['nombre_demo']}: " + self._categoria_de(p)
+                                           + ("" if p["id"] in con_cara else " (solo QR)")
                                            for p in self.registradas + self.invitados]
             teclas = ("Espacio: llegada · I: traigo QR · Q: sin QR · 1/2/3: plan o ayuda\n"
                       f"N: anfitrión {'NO responde' if self.anfitrion_no_responde else 'responde'}")

@@ -25,6 +25,25 @@ con QR. Cada uno tiene un QR (los genera `simulation/generar_qr.py`; aquí solo 
 para los miembros y el personal, de visita para los invitados y la externa. Las visitas de Sebastián y Thalia
 valen hasta el 24/10 a las 22:00. Sus fotos están en el bucket `fotos`, en `equipo/<clave>/`.
 
+Camilo se borró el 24/10 para probar el registro desde la app: sus invitados (Sebastián, Juan,
+Mentor de prueba) quedaron a cargo de Camila y Thalia a cargo de Mariana; su foto y su QR se borraron.
+Ese reasignamiento quedó en Supabase y en `roles.json`, pero `dataset/caras/personas.json` seguía
+con `thalia.responsable = "camilo"` (dato viejo, sin la cara borrada): quien use la copia local sin
+`--supabase` se quedaba sin poder resolver su responsable al llegar con QR. Ya corregido.
+
+Invitados y externos no se reconocen por la cara: siempre entran con QR. Sus fotos del equipo
+están en `uso = 'prueba'` (Juan, Mini, Samuel, Thalia); la de Juan además se borró el 24/10
+(fila, huella y archivo).
+
+Sebastián pasó a VIP el 24/10 (horario 06:00–21:00): su invitación se canceló y su QR de visita
+se cambió por un QR personal nuevo (`dataset/qr/sebastian.png`); el pase anterior ya no sirve.
+
+Fotos desde la app (`20261024000009_estado_huella_fotos_app.sql`): `fotografias.huella_estado`
+(`pendiente`, `lista`, `sin_cara`) y `huella_detalle` (el motivo). La app sube la foto y la fila;
+`simulation/huellas_app.py` (el backend del robot, con la clave de servicio) calcula la huella con
+SFace, la guarda con `guardar_huella` (que la deja `lista`) o la marca `sin_cara`. No acepta una cara
+que se parece a otra persona ya registrada.
+
 Segunda tanda (24/10), una persona por flujo: Camila (VIP), Carolina (regular), Mariana (personal,
 turno 6–14), Mini (invitada de Camila) y Samuel (externo de Climatizar SAS a cargo de Mariana), con
 sus QR. Las visitas de Mini y Samuel valen hasta el 24/10 a las 22:00. Se subieron con
@@ -53,7 +72,9 @@ Reglas:
   recepción son la alternativa.
 - Membresía o vínculo vencido (`vinculo_hasta` pasado): la cara se reconoce, pero no entra.
 - Un invitado o externo que registró su cara entra reconocido con su visita activa, sin QR.
-- El trabajador externo necesita empresa y responsable, y solo puede ir acompañado por el D1.
+- El trabajador externo necesita empresa y responsable, y solo puede ir acompañado por el D1
+  (`ayuda_disponible`). La migración 010 lo extendió al invitado y la 011 lo deshizo: el
+  invitado elige entre indicación, mapa o D1.
 - Las personas sin vínculo (invitados, externos) se borran cuando ya no tienen visitas vigentes
   (tarea `limpiar-visitas-vencidas`, cada 5 minutos).
 

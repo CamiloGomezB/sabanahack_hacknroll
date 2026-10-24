@@ -139,3 +139,42 @@ class BaseReal:
         self._pedir("PATCH", f"/rest/v1/avisos?id=eq.{aviso_id}&estado=in.(emitido,recibido)",
                     {"estado": "sin_respuesta", "actualizado_en": datetime.now().astimezone().isoformat()},
                     {"Prefer": "return=minimal"})
+
+    # --- fotos de registro que sube la app móvil (las procesa huellas_app.py) -----------------
+    def fotos_pendientes(self) -> list[dict]:
+        """Fotos de registro autorizadas que todavía no tienen huella."""
+        return self._pedir(
+            "GET", "/rest/v1/fotografias?select=id,ruta,persona_id,"
+                   "persona:personas!fotografias_persona_id_fkey(nombre_demo,consentimiento_biometrico)"
+                   "&uso=eq.registro&autorizada=is.true&huella_estado=eq.pendiente&embedding=is.null"
+                   "&order=creado_en.asc&limit=20") or []
+
+    def descargar_foto(self, ruta: str) -> bytes:
+        pedido = urllib.request.Request(
+            f"{self.url}/storage/v1/object/fotos/{ruta}",
+            headers={"apikey": self._clave, "Authorization": f"Bearer {self._clave}"})
+        try:
+            with urllib.request.urlopen(pedido, timeout=max(self.tiempo_espera, 15)) as r:
+                return r.read()
+        except urllib.error.HTTPError as e:
+            raise ErrorBase(f"Storage respondió {e.code} al bajar {ruta}") from e
+        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            raise ErrorBase(f"sin conexión con Supabase ({e})") from e
+
+    def guardar_huella(self, foto_id: str, embedding, modelo: str) -> None:
+        self._rpc("guardar_huella", p_foto=foto_id, p_modelo=modelo,
+                  p_embedding="[" + ",".join(f"{x:.6f}" for x in embedding) + "]")
+
+    def foto_sin_huella(self, foto_id: str, motivo: str) -> None:
+        """La foto no sirvió: la app se lo muestra a la persona para que tome otra."""
+        self._pedir("PATCH", f"/rest/v1/fotografias?id=eq.{foto_id}",
+                    {"huella_estado": "sin_cara", "huella_detalle": motivo},
+                    {"Prefer": "return=minimal"})
+
+    def huellas_registro(self, modelo: str) -> list[dict]:
+        """Todas las huellas de registro de un modelo, con su persona (para reconocer en vivo)."""
+        return self._pedir(
+            "GET", "/rest/v1/fotografias?select=id,persona_id,embedding,"
+                   "persona:personas!fotografias_persona_id_fkey(nombre_demo,vinculo,estado,"
+                   "consentimiento_biometrico)"
+                   f"&uso=eq.registro&autorizada=is.true&modelo=eq.{modelo}&embedding=not.is.null") or []

@@ -87,7 +87,7 @@ class Resolucion:
 
 
 def ayuda_disponible(categoria: str) -> list[str]:
-    # El externo siempre va acompañado: entra a zonas restringidas.
+    # El externo siempre va acompañado: entra a zonas restringidas. Igual que public.ayuda_disponible.
     return ["acompanamiento"] if categoria == "externo" else ["indicacion", "mapa", "acompanamiento"]
 
 

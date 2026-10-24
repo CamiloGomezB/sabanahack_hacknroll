@@ -20,8 +20,8 @@ conocer la operación real de un club específico.
 
 - La categoría determina opciones y restricciones; cuánta ayuda necesita cada persona depende también
   de su motivo y de su elección (indicación, mapa o acompañamiento del D1).
-- **Invitados y trabajadores externos entran siempre con QR.** No se les registra la cara: su visita
-  es temporal. Sus fotos del equipo están marcadas `uso = 'prueba'`.
+- **Invitados y trabajadores externos entran siempre con QR.** No se les registra la cara: su
+  visita es temporal. Sus fotos del equipo están marcadas `uso = 'prueba'`.
 - El reconocimiento facial es **voluntario** (consentimiento en la app, Ley 1581). Quien no lo da
   entra con su QR personal.
 - El **trato** ("Cómo prefieres que el robot te hable", `personas.trato`) lo escribe la persona en la

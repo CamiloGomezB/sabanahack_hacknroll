@@ -90,8 +90,10 @@ Cada caso de `datos_falsos.CASOS` sigue el mismo flujo, y el panel de la izquier
    el servicio no responde, recepción ve la evidencia y corrige **dejando un motivo**. El robot no
    agrega al dataset la cara de quien mostró el QR.
 5. **Nivel de ayuda**: la persona elige *indicación* (el X2 le explica), *mapa* (el X2 señala la
-   zona, que parpadea) o *acompañamiento* (el D1 la guía). El trabajador externo solo puede ir
-   acompañado.
+   zona, que parpadea) o *acompañamiento* (el D1 la guía). El X2 lo pregunta enseguida, con las tres
+   opciones: al miembro apenas dice qué quiere hacer y al invitado en la bienvenida. El aviso al
+   anfitrión o responsable sigue en segundo plano: nadie se queda esperando su respuesta; si no
+   responde, recepción queda avisada. El trabajador externo no elige: va siempre con el D1.
 6. **Ruta**: solo por pasillos autorizados para su categoría (el de servicio, en naranja, es para
    personal y externos). Si el pasillo central está cerrado (barrera roja), sale una **ruta alterna
    autorizada**. El D1 confirma la llegada; un regular nuevo hace el recorrido de bienvenida.
@@ -216,13 +218,32 @@ los casos.
    python generar_qr.py --subir
    ```
 
-5. Corre la simulación con la cámara:
+5. Si no reconoce bien a alguien, mira por qué con el diagnóstico en vivo:
+
+   ```bash
+   python diagnostico_caras.py              # caras de la copia local
+   python diagnostico_caras.py --supabase   # caras de la base (incluye las de la app)
+   ```
+
+   Muestra el tamaño de la cara y la confianza del detector (en rojo si no alcanzan el mínimo) y
+   las 3 personas más parecidas con su distancia (< 0.60 la reconoce). Deja cada medio segundo una
+   línea en `diagnostico_caras.log` (no se sube a git) para calibrar con la cámara y la luz reales.
+
+   Cómo analiza la webcam: la abre a 1280x720 (a 640x480 una cara a un metro mide ~55 px y quedaba
+   rechazada), analiza el cuadro sin espejo (el espejo es solo para la ventana), acepta caras desde
+   48 px y confianza 0.80, y entrega el promedio de las huellas de los últimos 2 s que son de la
+   misma cara. Con 2 o 3 fotos de registro por persona (la app deja subir 3) reconoce mejor.
+
+6. Corre la simulación con la cámara:
 
    ```bash
    python main.py --camara
    python main.py --camara --supabase   # decide la base real, como el robot
    ```
 
+   Con `--supabase` las caras que se reconocen salen de la base, no de la copia local: se traen al
+   iniciar (la consola dice cuáles) y cada 15 s, con las fotos nuevas de la app. Quien no tiene cara
+   en la base aparece como "(solo QR)" en el panel.
    Con `--supabase` la decisión la toma Supabase en vivo (`registrar_llegada`, `contexto_llegada`,
    `registrar_orientacion` y `completar_tour`, con `fuente = 'simulacion'`) usando la clave de
    servicio del `.env`, con la hora real. Cada llegada queda en `eventos` y la ve recepción en el
@@ -254,7 +275,7 @@ los casos.
    de atención humana.
 
    **Invitados y externos no se reconocen por la cara**: entran siempre con QR. Aunque el equipo
-   tenga fotos de prueba de Juan, Sebastián y Thalia, quedan con `uso = 'prueba'` (aquí y en
+   tenga fotos de prueba de Mini, Samuel y Thalia, quedan con `uso = 'prueba'` (aquí y en
    Supabase), así que el X2 no los identifica y pide el QR. Su QR es un **pase** con el formato de
    la app (`NC1.` + JSON en base64url: token, nombre, tipo, anfitrión o empresa, destino y
    vigencia). En pantalla se ve lo que dice el pase, pero la decisión sale del token verificado en
@@ -321,6 +342,11 @@ Con `--ollama` (opcional) Ollama reescribe la bienvenida y el "ya viene por ti" 
 validador que la simulación, más los datos de la frase (hora, lugar, tarea, anfitrión…), que tienen
 que quedar idénticos; si no, o si tarda más de 3,5 s, dice el texto fijo.
 
+Con `--supabase` también procesa cada 15 s las fotos que la gente sube desde la app (Mi perfil →
+Foto para el reconocimiento) y trae todas las huellas de la base: quien se registró desde la app se
+reconoce sin reiniciar, y quien se borró de la base deja de reconocerse. Lo mismo, sin la recepción:
+`python huellas_app.py` (una vez) o `python huellas_app.py --seguir`.
+
 La voz en español la genera Windows (`voz_x2.py`, voz Helena es-ES, 16 kHz) y se guarda en caché en
 la carpeta temporal. Despliegue en el robot, red y lo real frente a lo simulado: `robot_x2/README.md`,
 sección "Recepción fija".
@@ -336,10 +362,12 @@ métodos, sin tocar el coordinador.
 ## Archivos
 
 - `main.py`: coordinador de la recepción, panel, visor, modo cámara, capturas y validación.
+- `huellas_app.py`: huellas de las fotos subidas desde la app (las guarda en Supabase).
 - `recepcion_fija.py`: recepción con el X2 real quieto (cámara del portátil, Supabase, voz y cara del
   robot). `voz_x2.py`: voz en español de Windows y cliente del puente de voz del robot.
 - `robots/`: interfaz del X2 y del D1 y sus versiones simuladas.
 - `caras.py`: reconocimiento real (YuNet + SFace). `camaras.py`: cámara del dataset o del computador.
+- `diagnostico_caras.py`: diagnóstico en vivo del reconocimiento (tamaño, confianza, distancias).
 - `registrar_caras.py` / `supabase_demo.py`: registran las caras reales (local y en Supabase).
 - `generar_qr.py`: QR del equipo e invitaciones sin cara (local y en Supabase).
 - `agente.py`: cómo habla el X2 según la persona y su ánimo (reglas locales + Ollama opcional).

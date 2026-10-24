@@ -314,7 +314,7 @@ CASOS = [
           esperado=dict(robot="regular", destino="restaurante", ayuda="indicacion")),
     _caso(16, "Reconocido, pero con la membresía vencida", "ricardo", "Ricardo Silva",
           "ricardo_p1", esperado=dict(robot="rechazado")),
-    _caso(17, "Invitada: su anfitrión no confirma el aviso", "elena", "Elena Prieto", None,
-          "qr-elena", ayuda="indicacion", anfitrion_responde=False,
-          esperado=dict(robot="invitado", destino="lobby", ayuda=None)),
+    _caso(17, "Invitada: su anfitrión no confirma; va igual y recepción queda avisada", "elena",
+          "Elena Prieto", None, "qr-elena", ayuda="indicacion", anfitrion_responde=False,
+          esperado=dict(robot="invitado", destino="sala_vip", ayuda="indicacion")),
 ]

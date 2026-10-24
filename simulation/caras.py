@@ -32,9 +32,13 @@ TONO = dict(enojo="tenso", asco="tenso", miedo="tenso", alegria="contento", neut
 CONFIANZA_ANIMO = 0.60   # por debajo, el tono queda neutral
 DIM = 512
 
-LADO_MINIMO = 80      # px: una cara más pequeña no sirve para comparar
-CONFIANZA_MINIMA = 0.85
-ANCHO_MAX = 640       # px: las imágenes más grandes se reducen antes de detectar
+# SFace compara la cara alineada a 112x112. En pruebas con las fotos de registro reducidas, ruido y
+# compresión, desde ~42 px de lado ya acierta 10/10 sin confundir a nadie; con 80 la webcam
+# rechazaba como "muy lejos" a casi cualquiera a más de 70 cm.
+LADO_MINIMO = 48      # px: una cara más pequeña no sirve para comparar
+CONFIANZA_MINIMA = 0.80
+ANCHO_MAX = 640       # px: las fotos de celular más grandes se reducen antes de detectar
+ANCHO_WEBCAM = 1280   # px: los cuadros de la webcam (1280x720) se usan completos
 
 
 @dataclass
@@ -90,9 +94,10 @@ class ModeloFacial:
             return np.zeros((0, 15))
         return caras[np.argsort(-caras[:, 2] * caras[:, 3])]
 
-    def capturar(self, imagen: np.ndarray, origen: str = "cámara") -> Captura:
+    def capturar(self, imagen: np.ndarray, origen: str = "cámara",
+                 ancho_max: int = ANCHO_MAX) -> Captura:
         """Huella de la cara principal, o una captura no válida con su motivo."""
-        imagen = reducir(imagen)
+        imagen = reducir(imagen, ancho_max)
         caras = self.detectar(imagen)
         if len(caras) == 0:
             return Captura(None, False, "no se ve ninguna cara", origen=origen)
@@ -107,6 +112,18 @@ class ModeloFacial:
         huella /= np.linalg.norm(huella)
         return Captura(np.pad(huella, (0, DIM - len(huella))), True, None, caja, origen=origen,
                        animo=self.animo(alineada))
+
+
+def promedio(capturas: list[Captura]) -> Captura | None:
+    """Una sola huella a partir de varios cuadros de la misma persona (el promedio normalizado):
+    más estable que un cuadro suelto, que puede salir movido o de lado."""
+    validas = [c for c in capturas if c.valida]
+    if not validas:
+        return None
+    media = np.mean([c.embedding for c in validas], axis=0)
+    media /= np.linalg.norm(media)
+    mejor = max(validas, key=lambda c: (c.caja[2] * c.caja[3]) if c.caja else 0)
+    return Captura(media, True, None, mejor.caja, mejor.modo, mejor.modelo, mejor.origen, mejor.animo)
 
 
 def reducir(imagen: np.ndarray, ancho_max: int = ANCHO_MAX) -> np.ndarray:

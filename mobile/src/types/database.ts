@@ -53,6 +53,20 @@ export interface Credencial {
   revocada_en: string | null;
 }
 
+/** Estado de la huella de una foto de registro (migración 20261024000009). */
+export type EstadoHuella = 'pendiente' | 'lista' | 'sin_cara';
+
+/** Foto de registro de la persona. La huella la calcula el backend, nunca la app. */
+export interface Fotografia {
+  id: string;
+  ruta: string;
+  tomada_en: string;
+  huella_estado: EstadoHuella;
+  huella_detalle: string | null;
+}
+
+export const FOTO_COLUMNS = 'id,ruta,tomada_en,huella_estado,huella_detalle';
+
 /** Respuesta de public.crear_invitacion */
 export interface CrearInvitacionResult {
   visita_id: string;

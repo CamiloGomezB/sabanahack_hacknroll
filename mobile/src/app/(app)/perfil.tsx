@@ -11,9 +11,13 @@ import { PROFILE_LABELS } from '@/constants/profiles';
 import { colors, spacing } from '@/constants/theme';
 import { useActiveSession } from '@/features/auth/SessionProvider';
 import { membershipStatus } from '@/features/memberships/status';
-import { updateMyConsent, updateMyTrato } from '@/services/supabase/personas';
+import { FacePhotos } from '@/features/profile/FacePhotos';
+import { updateMyConsent, updateMyDatos, updateMyTrato } from '@/services/supabase/personas';
 import { friendlyError, memberCode } from '@/utils/format';
 import { formatClock, formatClubDateTime } from '@/utils/time';
+import { validateName } from '@/utils/validation';
+
+const PHONE_RE = /^\+?[0-9\s-]{7,15}$/;
 
 export default function ProfileScreen() {
   const { session, signOut, setPersona } = useActiveSession();
@@ -23,6 +27,33 @@ export default function ProfileScreen() {
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [trato, setTrato] = useState(persona?.trato ?? '');
   const [tratoMsg, setTratoMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [nombre, setNombre] = useState(persona?.nombre_demo ?? '');
+  const [telefono, setTelefono] = useState(persona?.telefono ?? '');
+  const [datosMsg, setDatosMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  async function saveDatos() {
+    setDatosMsg(null);
+    const error =
+      validateName(nombre) ?? (telefono.trim() && !PHONE_RE.test(telefono.trim()) ? 'Escribe un teléfono válido.' : undefined);
+    if (error) {
+      setDatosMsg({ ok: false, text: error });
+      return;
+    }
+    if (session.status !== 'real') {
+      setDatosMsg({ ok: true, text: 'Cambio de demostración: no se guardó en Supabase.' });
+      return;
+    }
+    setSaving(true);
+    try {
+      const updated = await updateMyDatos(session.userId, { nombre, telefono });
+      setPersona(updated);
+      setDatosMsg({ ok: true, text: 'Datos guardados. El robot te saludará con este nombre.' });
+    } catch (e) {
+      setDatosMsg({ ok: false, text: friendlyError(e, 'No se pudieron guardar tus datos.') });
+    } finally {
+      setSaving(false);
+    }
+  }
 
   async function saveTrato() {
     setTratoMsg(null);
@@ -87,6 +118,22 @@ export default function ProfileScreen() {
             <Txt variant="caption">El nivel, el horario y el estado los administra el club.</Txt>
           </GlassCard>
 
+          <SectionTitle>Mis datos</SectionTitle>
+          <GlassCard>
+            <UnderlineField label="Nombre" value={nombre} onChangeText={setNombre} maxLength={80} autoCapitalize="words" />
+            <UnderlineField
+              label="Teléfono"
+              value={telefono}
+              onChangeText={setTelefono}
+              keyboardType="phone-pad"
+              maxLength={16}
+              placeholder="+57 300 123 4567"
+            />
+            <Txt variant="caption">El correo es el de tu cuenta y no se cambia aquí.</Txt>
+            {datosMsg ? <Notice tone={datosMsg.ok ? 'success' : 'danger'} title={datosMsg.text} /> : null}
+            <PillButton label="Guardar datos" icon="save-outline" disabled={saving} onPress={() => void saveDatos()} />
+          </GlassCard>
+
           <SectionTitle>Cómo te habla el robot</SectionTitle>
           <GlassCard>
             <UnderlineField
@@ -129,10 +176,16 @@ export default function ProfileScreen() {
             {message ? (
               <Notice tone={message.ok ? 'success' : 'danger'} title={message.text} />
             ) : null}
-            <Txt variant="caption">
-              La foto de registro para el reconocimiento se gestiona en recepción (pendiente en la app).
-            </Txt>
           </GlassCard>
+
+          <SectionTitle>Foto para el reconocimiento</SectionTitle>
+          {session.status === 'real' ? (
+            <FacePhotos userId={session.userId} personaId={persona.id} consent={consent} />
+          ) : (
+            <GlassCard>
+              <Notice tone="demo" title="En la demostración no se suben fotos." />
+            </GlassCard>
+          )}
         </>
       ) : null}
 

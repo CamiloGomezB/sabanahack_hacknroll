@@ -28,16 +28,19 @@ Teclas en la ventana de la cámara: Q no tengo QR · N el anfitrión no responde
 
 import argparse
 import sys
+import threading
 import time
 import unicodedata
 from datetime import datetime
 
+
 import agente as voz
 import datos_falsos
 import flujos
+import huellas_app
 from base_real import BaseReal, ErrorBase
 from camaras import QR_DEMO, CamaraWebcam
-from caras import MODELO
+from caras import MODELO, ModeloFacial
 from club import ESPACIOS_APP, ZONAS, nombre_destino
 from dataset import distancia
 from recepcion import CATEGORIAS, MOTIVOS, contexto_llegada, reconocer, registrar_llegada
@@ -51,6 +54,7 @@ MISMA_PERSONA = 0.60  # distancia de huella: por debajo es la misma persona que 
 SIN_CARA = 2.0        # s sin ver una cara para dar por terminada la atención
 NUEVO_SALUDO = 30.0   # s después de los cuales se vuelve a saludar aunque sea la misma persona
 ESPERA_OLLAMA = 3.5   # s: qwen2.5:3b tarda ~2,5 s; después hay que generar el audio
+SINCRONIZAR_CADA = 15.0  # s: con --supabase, fotos nuevas de la app y huellas de la base
 CALENTAR_OLLAMA = 40.0  # s que se espera al arrancar a que el modelo suba a la GPU
 
 MOSTRADOR = "Acércate al mostrador de recepción, por favor; allí te ayudan."
@@ -183,6 +187,32 @@ class RecepcionFija:
         self.sin_respuesta = False        # tecla N
         self.ultima = None                # (huella, hora) de la última persona atendida
         self.cara_vista = time.monotonic()
+        if base is not None:
+            self._modelo_fotos = None
+            self.sincronizar()
+            threading.Thread(target=self._sincronizar_siempre, daemon=True).start()
+
+    # --- huellas de la base (también las de quien se registró desde la app) -------------------
+    def sincronizar(self) -> None:
+        """--supabase: convierte en huella las fotos nuevas de la app (huellas_app.py) y trae todas
+        las huellas de la base. Así la vista en vivo y la elección de la foto reconocen también a
+        quien se registró desde la app, que no está en la copia local; quien se borró de la base
+        deja de reconocerse."""
+        if self._modelo_fotos is None:
+            self._modelo_fotos = ModeloFacial()   # uno propio: la cámara usa el suyo en otro hilo
+        try:
+            nombres = huellas_app.traer_de_base(self.base, self.datos, self._modelo_fotos, self.nota)
+        except ErrorBase as e:
+            self.nota(f"no se pudieron traer las huellas de la base: {e}")
+            return
+        if nombres != getattr(self, "_nombres_base", None):
+            self.nota(f"caras registradas en la base: {', '.join(sorted(nombres)) or 'ninguna'}")
+            self._nombres_base = nombres
+
+    def _sincronizar_siempre(self) -> None:
+        while not self.salir:
+            time.sleep(SINCRONIZAR_CADA)
+            self.sincronizar()
 
     # --- registro en consola y en la ventana --------------------------------------------------
     def nota(self, texto: str) -> None:
@@ -479,7 +509,8 @@ def main() -> None:
 
     camara = CamaraWebcam(args.camara)
     recepcion = RecepcionFija(camara, hablar, base, agente)
-    print(f"Personas del equipo: {', '.join(p['nombre_demo'] for p in recepcion.registradas) or 'ninguna'}")
+    if base is None:
+        print(f"Personas del equipo: {', '.join(p['nombre_demo'] for p in recepcion.registradas) or 'ninguna'}")
     print("Teclas" + __doc__.split("Teclas")[1].rstrip())
     try:
         recepcion.correr()

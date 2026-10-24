@@ -73,6 +73,14 @@ No se llaman `registrar_llegada`, `registrar_orientacion`, `completar_tour` ni `
   (`src/services/supabase/reservas.ts`), y las tareas del personal salen de `tareas_personal` y se
   marcan con `marcar_tarea` (`src/services/supabase/tareas.ts`). El robot ve esas reservas y tareas
   al recibir a la persona (`contexto_llegada`).
+- `20261024000009_estado_huella_fotos_app.sql` — **foto para el reconocimiento**: en **Mi perfil**,
+  con el consentimiento activo, la persona toma hasta 3 fotos con la cámara frontal (`expo-camera`,
+  funciona en Expo Go). La app sube la foto al bucket privado `fotos/<auth.uid()>/` y crea la fila de
+  `fotografias` (uso `registro`, autorizada); **la huella no la calcula la app**: la calcula el backend
+  del robot (`simulation/huellas_app.py`, o `recepcion_fija.py --supabase` mientras corre) y la app
+  muestra el estado de cada foto: *Procesando*, *Lista para reconocerte* o *No sirvió* con el motivo
+  (no se ve la cara, muy lejos, o se parece a otra persona registrada). Se puede borrar cada foto.
+  Retirar el consentimiento borra las huellas (trigger de la migración 4).
 - `20261024000007_anfitrion_avisos_trato.sql`:
   - `personas.trato`: "Cómo prefieres que el robot te hable" en **Mi perfil** (solo el tono).
   - `avisos`: cuando el robot registra la llegada de un invitado o externo, su anfitrión o
@@ -112,7 +120,8 @@ Bienvenida → inicio de sesión / registro / "Tengo un pase" / modo demostraci�
 | Tareas del personal | **Reales**: las asignadas para hoy en `tareas_personal`; marcarlas queda en la base | Simuladas, estado local |
 | Consulta / contratación de externos | **Pendiente**: se prepara y comparte, no se registra | Igual |
 | Espacios del club | **Supuestos** configurables en `src/constants/spaces.ts` | Igual |
-| Foto para reconocimiento facial | Pendiente (no se captura en la app) | — |
+| Datos personales (nombre, teléfono) | **Reales**: Mi perfil → Mis datos | Solo visual |
+| Foto para reconocimiento facial | **Real**: Mi perfil → Foto para el reconocimiento (cámara frontal, `expo-camera`) | No se sube |
 
 ## Estructura
 
