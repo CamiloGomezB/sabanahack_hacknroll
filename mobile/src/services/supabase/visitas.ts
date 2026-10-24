@@ -31,6 +31,38 @@ export async function crearInvitacion(p: CrearInvitacionParams): Promise<CrearIn
   return { visita_id: result.visita_id, token: result.token };
 }
 
+export interface EnviarInvitacionParams {
+  visitaId: string;
+  /** Texto plano: solo existe en este momento, justo después de crearInvitacion(). */
+  token: string;
+  email: string;
+  nombre: string;
+  anfitrion: string;
+  destino: string;
+  destinoNombre: string;
+  categoria: Extract<CategoriaVisita, 'invitado' | 'externo'>;
+  empresa: string | null;
+  motivo: string | null;
+  /** ISO 8601 */
+  desde: string;
+  hasta: string;
+}
+
+/** Edge Function enviar-invitacion: le manda al invitado su pase (QR) por correo (Resend). No
+ *  tumba la invitación si falla: ya quedó creada, el anfitrión siempre puede compartirla a mano. */
+export async function enviarInvitacionPorCorreo(
+  p: EnviarInvitacionParams,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const { data, error } = await requireSupabase().functions.invoke('enviar-invitacion', { body: p });
+    if (error) return { ok: false, error: error.message };
+    const r = data as { ok?: boolean; error?: string } | null;
+    return { ok: Boolean(r?.ok), error: r?.ok ? undefined : r?.error ?? 'respuesta inesperada' };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'error desconocido' };
+  }
+}
+
 export async function revocarInvitacion(visitaId: string, motivo?: string): Promise<void> {
   const { error } = await requireSupabase().rpc('revocar_invitacion', {
     p_visita: visitaId,

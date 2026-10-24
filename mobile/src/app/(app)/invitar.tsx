@@ -9,7 +9,7 @@ import { Screen } from '@/components/Screen';
 import { canInviteGuests, canRegisterExternal } from '@/features/auth/permissions';
 import { useActiveSession } from '@/features/auth/SessionProvider';
 import { InvitationForm } from '@/features/invitations/InvitationForm';
-import { invitationsServiceFor, type InvitationInput } from '@/features/invitations/service';
+import { invitationsServiceFor, type EnvioCorreo, type InvitationInput } from '@/features/invitations/service';
 import { AccessPassView } from '@/features/temporary-access/AccessPassView';
 import type { AccessPass } from '@/features/temporary-access/pass';
 import { friendlyError } from '@/utils/format';
@@ -22,6 +22,7 @@ export default function InviteScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<AccessPass | null>(null);
+  const [correo, setCorreo] = useState<EnvioCorreo | null>(null);
 
   const allowed = categoria === 'externo' ? canRegisterExternal(session) : canInviteGuests(session);
   const title = categoria === 'externo' ? 'Acceso de trabajador externo' : 'Invitar a alguien';
@@ -44,8 +45,9 @@ export default function InviteScreen() {
     setSubmitting(true);
     setError(null);
     try {
-      const { pass } = await service.create(input);
+      const { pass, correo: c } = await service.create(input);
       setCreated(pass);
+      setCorreo(c);
     } catch (e) {
       setError(friendlyError(e, 'No se pudo registrar la invitación.'));
     } finally {
@@ -66,6 +68,18 @@ export default function InviteScreen() {
               : 'La visita y su credencial QR quedaron registradas. Comparte el pase con la persona invitada.'
           }
         />
+        {correo ? (
+          <Notice
+            tone={correo.enviado ? 'success' : 'warning'}
+            icon={correo.enviado ? 'mail-outline' : 'mail-unread-outline'}
+            title={correo.enviado ? 'Le mandamos el pase por correo' : 'No se pudo enviar el correo'}
+            message={
+              correo.enviado
+                ? 'Además de compartirlo tú, ya le llegó a su bandeja de entrada.'
+                : 'La invitación quedó registrada igual; comparte el pase con la persona de otra forma.'
+            }
+          />
+        ) : null}
         <AccessPassView pass={created} audience="host" />
         <PillButton label="Volver al inicio" variant="outline" onPress={() => router.replace('/home')} />
       </Screen>

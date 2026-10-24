@@ -1,11 +1,23 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
+import { spaceName } from '@/constants/spaces';
 import type { SessionState } from '@/features/auth/SessionProvider';
 import { demoQrValue } from '@/features/demo/demoData';
 import type { AccessPass, PassCategory } from '@/features/temporary-access/pass';
 import { deleteIssuedPass, loadIssuedPass, saveIssuedPass } from '@/features/temporary-access/passStorage';
-import { crearInvitacion, fetchVisitasComoResponsable, revocarInvitacion } from '@/services/supabase/visitas';
+import {
+  crearInvitacion,
+  enviarInvitacionPorCorreo,
+  fetchVisitasComoResponsable,
+  revocarInvitacion,
+} from '@/services/supabase/visitas';
 import type { EstadoVisita } from '@/types/database';
+
+/** Resultado de intentar mandar el pase por correo. null: no aplica (modo demo). */
+export interface EnvioCorreo {
+  enviado: boolean;
+  error?: string;
+}
 
 export interface InvitationInput {
   categoria: PassCategory;
@@ -36,7 +48,7 @@ export interface InvitationRecord {
 export interface InvitationsService {
   readonly demo: boolean;
   list(): Promise<InvitationRecord[]>;
-  create(input: InvitationInput): Promise<{ record: InvitationRecord; pass: AccessPass }>;
+  create(input: InvitationInput): Promise<{ record: InvitationRecord; pass: AccessPass; correo: EnvioCorreo | null }>;
   revoke(id: string): Promise<void>;
   /** Pase guardado en este teléfono (el token solo se entrega una vez al crearlo). */
   getPass(id: string): Promise<AccessPass | null>;
@@ -80,13 +92,31 @@ function realService(personaId: string, hostName: string): InvitationsService {
         visitaId: visita_id,
       };
       await saveIssuedPass(visita_id, pass);
+      const email = input.email.trim().toLowerCase();
+      const correo = email
+        ? await enviarInvitacionPorCorreo({
+            visitaId: visita_id,
+            token,
+            email,
+            nombre: pass.nombre,
+            anfitrion: hostName,
+            destino: input.destino,
+            destinoNombre: spaceName(input.destino),
+            categoria: input.categoria,
+            empresa: pass.empresa,
+            motivo: pass.motivo,
+            desde: pass.desde,
+            hasta: pass.hasta,
+          }).then((r) => ({ enviado: r.ok, error: r.error }))
+        : null;
       return {
         pass,
+        correo,
         record: {
           id: visita_id,
           categoria: input.categoria,
           nombre: pass.nombre,
-          email: input.email.trim().toLowerCase(),
+          email,
           destino: input.destino,
           empresa: pass.empresa,
           motivo: pass.motivo,
@@ -160,7 +190,7 @@ function demoService(hostId: string, hostName: string): InvitationsService {
         demo: true,
       };
       await writeDemo(key, [{ record, pass }, ...(await readDemo(key))].slice(0, 30));
-      return { record, pass };
+      return { record, pass, correo: null };
     },
     async revoke(id) {
       const entries = await readDemo(key);

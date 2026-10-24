@@ -33,12 +33,20 @@ export async function responderAviso(id: string, estado: 'recibido' | 'aceptado'
   if (error) throw error;
 }
 
+// client.channel(topic) reutiliza el canal si ya existe uno con ese mismo topic (p. ej. uno que
+// esta por cerrarse: removeChannel espera a que el servidor confirme el unsubscribe antes de
+// quitarlo de la lista). Si ArrivalNotices se vuelve a montar con el mismo personaId antes de que
+// eso termine (al volver a Inicio después de crear una invitación, por ejemplo), el canal que
+// devuelve ya pasó por subscribe() y el .on() de abajo revienta con "cannot add ... after
+// subscribe()". Un sufijo único por llamada evita que un canal nuevo se tope con uno viejo.
+let contadorAvisos = 0;
+
 /** Llama a `onChange` cuando llega o cambia un aviso propio (Supabase Realtime). */
 export function subscribeAvisos(personaId: string, onChange: () => void): () => void {
   if (!supabase) return () => {};
   const client = supabase;
   const channel = client
-    .channel(`avisos-${personaId}`)
+    .channel(`avisos-${personaId}-${++contadorAvisos}`)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'avisos', filter: `destinatario_id=eq.${personaId}` }, onChange)
     .subscribe();
   return () => {

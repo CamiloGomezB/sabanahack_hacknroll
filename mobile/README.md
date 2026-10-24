@@ -91,8 +91,37 @@ No se llaman `registrar_llegada`, `registrar_orientacion`, `completar_tour` ni `
 
 Además, para que el invitado vea su pase sin depender del código compartido, haría falta una
 **Edge Function** (p. ej. `pase-invitado`) que reciba el token, lo valide con `hash_token` usando la
-clave de servicio en el servidor y devuelva solo nombre, anfitrión, destino y vigencia. Lo mismo para
-enviar la invitación por correo.
+clave de servicio en el servidor y devuelva solo nombre, anfitrión, destino y vigencia.
+
+### Correo con el pase (QR) al invitado
+
+`supabase/functions/enviar-invitacion/` (Deno). La app la llama justo después de `crear_invitacion()`,
+con el token en texto plano (solo existe en ese momento). Antes de mandar nada, la función confirma
+contra la base que quien llama es el anfitrión o responsable de esa visita y que el token coincide con
+su credencial (mismo `hash_token` que usa Postgres) — así nadie puede usarla para mandar correos con
+datos inventados. Genera el mismo código QR que ve el anfitrión (`NC1.` + JSON en base64url) y lo
+manda por [Resend](https://resend.com) como adjunto embebido (`content_id`) en un correo con el
+nombre, el punto de encuentro y la vigencia. Si falla, la invitación queda creada igual: el anfitrión
+siempre puede compartir el pase a mano desde la app.
+
+Para que funcione falta configurar, una sola vez, la clave de Resend (nunca en el código ni en el
+repositorio):
+
+```bash
+npx.cmd supabase login
+npx.cmd supabase secrets set RESEND_API_KEY=re_tu_clave --project-ref htgcummucmswgileefxv
+# Opcional: remitente propio, si ya verificaste un dominio en Resend.
+npx.cmd supabase secrets set RESEND_FROM="N Club <invitaciones@tudominio.com>" --project-ref htgcummucmswgileefxv
+```
+
+Sin `RESEND_FROM`, usa `onboarding@resend.dev`, que Resend marca como *solo para pruebas*: **entrega
+únicamente al correo del dueño de la cuenta de Resend**, no a cualquier invitado. Se probó cambiar a
+SendGrid (sin necesitar dominio) para mandarle el pase a cualquiera, pero las cuentas nuevas creadas
+desde la red del hackathon quedaron bloqueadas por su sistema antifraude ("You are not authorized to
+access this account"); Brevo tiene el mismo problema (revisión manual de cuentas nuevas). Mandar por
+SMTP (p. ej. Gmail) tampoco es viable: Supabase bloquea las conexiones salientes por los puertos 25 y
+587. Para mandarle el pase a invitados reales, la opción que queda es verificar un dominio propio en
+Resend (gratis, toma minutos) y configurar `RESEND_FROM` con él.
 
 ## Perfiles y flujo
 

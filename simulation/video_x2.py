@@ -54,11 +54,12 @@ def generar_madera(ruta: Path, lado: int = 2048, tablas: int = 12, semilla: int 
     Image.fromarray((rgb * 255).astype(np.uint8)).save(ruta)
 
 
-def construir() -> mujoco.MjModel:
+def pasillo(nombre: str) -> mujoco.MjSpec:
+    """Pasillo con piso de madera, paredes, columnas y luces (sin robots)."""
     if not TEXTURA_MADERA.exists():
         generar_madera(TEXTURA_MADERA)
     spec = mujoco.MjSpec()
-    spec.modelname = "x2_video"
+    spec.modelname = nombre
     spec.option.timestep = 0.001
     spec.option.gravity = [0, 0, 0]
     spec.visual.global_.offwidth = 1920
@@ -91,24 +92,33 @@ def construir() -> mujoco.MjModel:
                        pos=[15, lado * 3.0, 1.6], material="pared", **sin_choque)
         mundo.add_geom(type=mujoco.mjtGeom.mjGEOM_BOX, size=[40, 0.012, 0.05],
                        pos=[15, lado * 2.94, 0.05], material="zocalo", **sin_choque)
-        for x in np.arange(-6, 50, 4.0):
+        for x in np.arange(-22, 50, 4.0):
             mundo.add_geom(type=mujoco.mjtGeom.mjGEOM_BOX, size=[0.18, 0.12, 1.6],
                            pos=[x, lado * 2.88, 1.6], material="pared", **sin_choque)
-    mundo.add_geom(type=mujoco.mjtGeom.mjGEOM_BOX, size=[0.05, 3, 1.6], pos=[55, 0, 1.6],
-                   material="pared", **sin_choque)
-    for x in np.arange(-4, 52, 6.0):
+    for x in (-25, 55):
+        mundo.add_geom(type=mujoco.mjtGeom.mjGEOM_BOX, size=[0.05, 3, 1.6], pos=[x, 0, 1.6],
+                       material="pared", **sin_choque)
+    for x in np.arange(-22, 52, 6.0):
         mundo.add_light(pos=[x, 0, 3.0], dir=[0, 0, -1], diffuse=[0.35, 0.34, 0.32],
                         specular=[0.1, 0.1, 0.1], cutoff=70, exponent=2,
                         castshadow=False)
     mundo.add_light(name="sol", pos=[0, 0, 6], dir=[0.25, 0.15, -1], diffuse=[0.55, 0.53, 0.5],
                     type=mujoco.mjtLightType.mjLIGHT_DIRECTIONAL, castshadow=True)
+    return spec
 
+
+def agregar_x2(spec: mujoco.MjSpec) -> None:
     x2 = mujoco.MjSpec.from_file(str(X2_MODELO_DEFECTO))
     for site in list(x2.sites):
         x2.delete(site)
     for light in list(x2.lights):
         x2.delete(light)
-    mundo.add_frame().attach_body(x2.body("pelvis"), "x2_", "")
+    spec.worldbody.add_frame().attach_body(x2.body("pelvis"), "x2_", "")
+
+
+def construir() -> mujoco.MjModel:
+    spec = pasillo("x2_video")
+    agregar_x2(spec)
     return spec.compile()
 
 

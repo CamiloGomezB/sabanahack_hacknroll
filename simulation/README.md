@@ -60,6 +60,43 @@ visual: la caminata es una animación por cinemática inversa (los pies no resba
 un controlador real del robot. La textura de la madera la genera el mismo script
 (`texturas/madera_laminada.png`).
 
+### Otras tomas para la presentación
+
+```bash
+python videos_presentacion.py d1      # videos/d1_de_frente.mp4
+python videos_presentacion.py saludo  # videos/x2_saluda.mp4
+python videos_presentacion.py dos     # videos/x2_recibe_dos.mp4
+python videos_presentacion.py pasa    # videos/d1_pasa.mp4
+python videos_presentacion.py saludo --cuadros 0 3 6   # solo PNG de esos segundos, para revisar
+```
+
+Usan el mismo pasillo:
+
+- **`d1`**: el D1 trota de frente a la cámara, que retrocede a su paso. Una persona camina detrás de
+  él, porque el D1 la está guiando.
+- **`saludo`**: cámara fija detrás del X2, corrida a su izquierda. Llega una persona y el X2 la
+  saluda con la mano izquierda.
+- **`dos`**: cámara fija detrás del X2, centrada y en alto. Llegan dos personas lado a lado y el X2
+  adelanta los brazos, como para recibir una caja, a modo de bienvenida.
+- **`pasa`**: solo el D1, con la cámara fija a ras de piso (a su altura) y a la derecha de su
+  camino. Viene trotando por el pasillo, pasa muy cerca de la cámara y sale de cuadro.
+
+Dos tomas más, dentro del club de la simulación (el mismo plano de `main.py`), de 13 s:
+
+```bash
+python videos_club.py recepcion   # videos/club_recepcion.mp4
+python videos_club.py entrega     # videos/club_entrega.mp4
+```
+
+- **`recepcion`**: vista desde arriba del lobby, donde se ven la recepcionista, el X2, la persona y
+  el D1. La persona entra y se para frente al X2, que le habla moviendo las manos.
+- **`entrega`**: cámara a la altura del D1, de frente a la puerta de la Sala VIP. El D1 llega con la
+  persona detrás y se hace a un lado. La persona entra a la sala, y el D1 gira y se va por el pasillo.
+
+Igual que la caminata, todo es animación cinemática y no un controlador real. Las personas son
+figuras simples con piernas y brazos articulados. Cada toma dura 12 s a 40 fps (`--segundos`,
+`--fps`).
+
 ## Modelo del X2
 
 El modelo oficial del X2 Ultra (`x2_ultra.xml` de `X2_URDF-v1.3.0` y sus mallas; el `X2-Ultra.xml` de v1.4.0 es la versión nueva, que no usamos) es de AgiBot y **no se sube al
